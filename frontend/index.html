@@ -162,10 +162,10 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
   .del-btn,.row-edit-btn{display:none}
   @page{margin:18mm}
 }
-.supply-cell{position:relative;cursor:default}
-.supply-cell .tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:#1a1a2e;color:#fff;font-size:.72rem;padding:5px 10px;border-radius:6px;white-space:nowrap;z-index:50;font-weight:600;letter-spacing:.02em;pointer-events:none}
-.supply-cell .tooltip::after{content:'';position:absolute;top:100%;left:12px;border:5px solid transparent;border-top-color:#1a1a2e}
-.supply-cell:hover .tooltip{display:block}
+.supply-cell{position:relative}
+.row-tip{display:none;position:absolute;bottom:calc(100% + 4px);left:12px;background:#1a1a2e;color:#fff;font-size:.72rem;padding:5px 10px;border-radius:6px;white-space:nowrap;z-index:50;font-weight:600;letter-spacing:.02em;pointer-events:none}
+.row-tip::after{content:'';position:absolute;top:100%;left:12px;border:5px solid transparent;border-top-color:#1a1a2e}
+tbody tr:hover .row-tip{display:block}
 
 @media(max-width:700px){
   .main-grid{grid-template-columns:1fr;padding:14px 10px}
@@ -463,11 +463,13 @@ function renderTable(type){
     if(i<items.length){
       const it=items[i];
       if(type==='current'){
-        const invTip = it.changed_by ? `<span class="tooltip">Last edited by: ${esc(it.changed_by)}</span>` : '';
-        tr.innerHTML=`<td>${i+1}</td><td class="supply-cell">${esc(it.supply_name)}${invTip}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
+        const invTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.style.position='relative';
+        tr.innerHTML=`<td class="supply-cell">${invTip}${i+1}</td><td>${esc(it.supply_name)}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
       } else {
-        const givTip = it.changed_by ? `<span class="tooltip">Last edited by: ${esc(it.changed_by)}</span>` : '';
-        tr.innerHTML=`<td>${i+1}</td><td class="supply-cell">${esc(it.supply_name)}${givTip}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
+        const givTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.style.position='relative';
+        tr.innerHTML=`<td class="supply-cell">${givTip}${i+1}</td><td>${esc(it.supply_name)}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
       }
     } else {
       tr.className='empty-row';
