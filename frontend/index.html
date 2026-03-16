@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TSD-TMDSS Inventory</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#1a1f8f;--purple:#4a2299;--purple-h:#5a2fb0;
+  --white:#fff;--bg:#f0f0f0;--tbl:#e4e4e4;--border:#c8c8c8;
+  --text:#1a1a2e;--muted:#666;--hover:#d8d8f0;
+  --green:#1a8f4a;--red:#c0392b;
+  --shadow:0 4px 18px rgba(26,31,143,.10);
+}
+body{font-family:'Bricolage Grotesque',sans-serif;background:var(--bg);min-height:100vh;color:var(--text)}
+
+/* HEADER */
+header{background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 32px;height:54px;box-shadow:0 2px 12px rgba(26,31,143,.18)}
+header h1{font-size:1.4rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.header-link{font-size:.82rem;font-weight:600;color:#fff;background:none;border:none;cursor:pointer;text-decoration:underline;opacity:.88}
+.header-link:hover{opacity:1}
+
+/* TOAST */
+#toast{position:fixed;bottom:24px;right:24px;background:var(--navy);color:#fff;padding:10px 20px;border-radius:8px;font-size:.82rem;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.18);opacity:0;transform:translateY(12px);transition:opacity .2s,transform .2s;z-index:9999;pointer-events:none}
+#toast.show{opacity:1;transform:none}
+#toast.error{background:var(--red)}
+#toast.success{background:var(--green)}
+
+/* SPINNER */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* LAYOUT */
+#main-page{display:block}
+#main-page.hidden{display:none}
+#summary-page{display:none;padding:22px 24px;max-width:1100px;margin:0 auto}
+#summary-page.active{display:block}
+.main-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;padding:22px 24px;max-width:1200px;margin:0 auto}
+
+/* PANEL */
+.panel{background:#fff;border-radius:12px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 12px;border-bottom:1.5px solid var(--border);gap:10px}
+.panel-title{font-size:1.05rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.panel-actions{display:flex;align-items:center;gap:10px}
+
+/* SEARCH */
+.search-wrap{position:relative;display:flex;align-items:center}
+.search-wrap input{border:1.5px solid var(--border);border-radius:20px;padding:5px 32px 5px 13px;font-size:.78rem;font-family:inherit;color:var(--text);background:#f7f7f9;outline:none;width:148px;transition:border-color .18s}
+.search-wrap input:focus{border-color:var(--navy)}
+.search-wrap input::placeholder{color:#aaa}
+.search-icon{position:absolute;right:10px;color:#888;pointer-events:none;display:flex}
+
+/* BUTTONS */
+.btn-edit{display:flex;align-items:center;gap:6px;background:var(--purple);color:#fff;border:none;border-radius:20px;padding:6px 16px;font-size:.80rem;font-family:inherit;font-weight:600;cursor:pointer;transition:background .16s}
+.btn-edit:hover{background:var(--purple-h)}
+.btn-refresh{display:flex;align-items:center;justify-content:center;background:none;border:none;padding:4px;width:28px;height:28px;border-radius:6px;cursor:pointer;color:var(--muted);transition:color .15s,background .15s}
+.btn-refresh:hover{color:var(--navy);background:#e8e8f8}
+.btn-refresh.spinning svg{animation:spin .7s linear infinite}
+.add-row-btn{display:flex;align-items:center;gap:6px;background:none;border:1.5px dashed var(--border);color:var(--muted);font-size:.78rem;font-family:inherit;cursor:pointer;padding:7px 14px;margin:10px 14px;border-radius:6px;width:calc(100% - 28px);justify-content:center;transition:border-color .15s,color .15s}
+.add-row-btn:hover{border-color:var(--navy);color:var(--navy)}
+
+/* TABLE */
+.table-wrap{flex:1;overflow-y:auto;background:var(--tbl);border-radius:0 0 12px 12px}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--tbl)}
+thead th{font-size:.82rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text);padding:10px 12px 8px;text-align:left;border-bottom:1.5px solid var(--border);white-space:nowrap}
+thead th:first-child{width:42px}
+tbody tr{border-bottom:1px solid var(--border);transition:background .12s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--hover)}
+tbody td{padding:10px 12px;font-size:.84rem;color:var(--text)}
+tbody td:first-child{color:var(--muted);font-weight:600;font-size:.76rem}
+.empty-row td{height:38px;color:transparent}
+.loading-row td{text-align:center;color:var(--muted);font-size:.82rem;padding:24px}
+
+/* DEL / EDIT ROW BTNS */
+.del-btn,.row-edit-btn{background:none;border:none;cursor:pointer;opacity:0;padding:2px 5px;border-radius:4px;transition:opacity .12s;font-size:.85rem;display:inline-flex;align-items:center}
+.del-btn{color:#c00}
+.row-edit-btn{color:#888}
+tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
+.del-btn:hover{opacity:1!important;color:var(--red)}
+.row-edit-btn:hover{opacity:1!important;color:var(--navy)}
+
+/* MODAL */
+.overlay{display:none;position:fixed;inset:0;background:rgba(26,31,143,.18);backdrop-filter:blur(2px);z-index:200;align-items:center;justify-content:center}
+.modal-box{background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(26,31,143,.18);padding:28px 28px 22px;width:400px;max-width:95vw;animation:mIn .18s ease}
+@keyframes mIn{from{transform:translateY(18px) scale(.97);opacity:0}to{transform:none;opacity:1}}
+.modal-box h2{font-size:1.1rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--navy);margin-bottom:18px}
+.modal-box label{display:block;font-size:.75rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:4px;margin-top:14px}
+.modal-box label:first-of-type{margin-top:0}
+.modal-box input[type=text],.modal-box input[type=number],.modal-box select{width:100%;border:1.5px solid var(--border);border-radius:7px;padding:8px 11px;font-size:.85rem;font-family:inherit;color:var(--text);background:#f7f7f9;outline:none;transition:border-color .15s}
+.modal-box input:focus,.modal-box select:focus{border-color:var(--navy)}
+.modal-box select{cursor:pointer}
+.hint{font-size:.76rem;margin-top:5px;min-height:18px}
+.hint.ok{color:var(--green)}
+.hint.err{color:var(--red)}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+.btn-cancel{background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 18px;font-size:.82rem;font-family:inherit;font-weight:600;cursor:pointer}
+.btn-cancel:hover{border-color:#aaa}
+.btn-save{background:var(--navy);color:#fff;border:none;border-radius:8px;padding:7px 22px;font-size:.82rem;font-family:inherit;font-weight:600;cursor:pointer;transition:background .15s}
+.btn-save:hover{background:var(--purple)}
+.btn-save:disabled{opacity:.6;cursor:not-allowed}
+
+/* CALENDAR */
+.cal-wrap{position:relative;width:100%}
+.cal-wrap input[type=text]{width:100%;padding-right:36px;cursor:pointer}
+.cal-icon{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--navy);cursor:pointer;display:flex;align-items:center;opacity:.7}
+.cal-icon:hover{opacity:1}
+.cal-drop{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:999;background:#fff;border:1.5px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(26,31,143,.14);padding:12px;width:260px}
+.cal-drop.open{display:block}
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.cal-nav-btn{background:none;border:none;font-size:1.3rem;color:var(--navy);cursor:pointer;padding:2px 8px;border-radius:6px;line-height:1}
+.cal-nav-btn:hover{background:#eef}
+.cal-month{font-size:.85rem;font-weight:700;color:var(--navy)}
+.cal-wdays{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:4px}
+.cal-wdays span{text-align:center;font-size:.68rem;font-weight:700;color:var(--muted);padding:2px 0}
+.cal-days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-day{text-align:center;padding:5px 2px;font-size:.78rem;border-radius:6px;cursor:pointer;font-family:inherit;background:none;border:none;color:var(--text);transition:background .1s}
+.cal-day:hover:not(:disabled){background:var(--hover);color:var(--navy)}
+.cal-day:disabled{cursor:default;color:transparent}
+.cal-day.today{font-weight:700;color:var(--navy)}
+.cal-day.selected{background:var(--navy);color:#fff!important;font-weight:700}
+.cal-day.selected:hover{background:var(--purple)}
+
+/* SUMMARY */
+.summary-topbar{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap}
+.back-btn{background:var(--navy);color:#fff;border:none;border-radius:20px;padding:7px 18px;font-size:.82rem;font-family:inherit;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px}
+.back-btn:hover{background:var(--purple)}
+.filter-wrap{display:flex;gap:6px}
+.filter-btn{background:#fff;border:1.5px solid var(--border);border-radius:20px;padding:5px 16px;font-size:.78rem;font-family:inherit;font-weight:600;color:var(--muted);cursor:pointer;transition:all .14s}
+.filter-btn:hover{border-color:var(--navy);color:var(--navy)}
+.filter-btn.active{background:var(--navy);border-color:var(--navy);color:#fff}
+.export-btns{display:flex;gap:8px;margin-left:auto}
+.btn-export{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1.5px solid var(--border);color:var(--text);border-radius:8px;padding:6px 14px;font-size:.78rem;font-family:inherit;font-weight:600;cursor:pointer;transition:all .14s}
+.btn-export:hover{border-color:var(--navy);color:var(--navy);background:#f0f0ff}
+.btn-export.pdf{background:var(--navy);color:#fff;border-color:var(--navy)}
+.btn-export.pdf:hover{background:var(--purple);border-color:var(--purple)}
+.stat-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
+.stat-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:18px 20px;border-left:4px solid var(--navy)}
+.stat-card.inv{border-left-color:#1a8f4a}
+.stat-card.giv{border-left-color:#c0392b}
+.stat-lbl{font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.stat-val{font-size:1.8rem;font-weight:700;color:var(--navy)}
+.stat-card.inv .stat-val{color:#1a8f4a}
+.stat-card.giv .stat-val{color:#c0392b}
+.sum-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:18px}
+.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.badge-inv{background:#d4f0e0;color:#1a6b38}
+.badge-giv{background:#fde8e8;color:#a93226}
+.stock-ok{color:var(--green)}
+.stock-err{color:var(--red)}
+
+@media print{
+  body{background:#fff}
+  header,#main-page,.overlay,#toast{display:none!important}
+  #summary-page{display:block!important;padding:0}
+  .table-wrap{max-height:none!important;overflow:visible!important}
+  .del-btn,.row-edit-btn{display:none}
+  @page{margin:18mm}
+}
+.supply-cell{position:relative;cursor:default}
+.supply-cell .tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:#1a1a2e;color:#fff;font-size:.72rem;padding:5px 10px;border-radius:6px;white-space:nowrap;z-index:50;font-weight:600;letter-spacing:.02em;pointer-events:none}
+.supply-cell .tooltip::after{content:'';position:absolute;top:100%;left:12px;border:5px solid transparent;border-top-color:#1a1a2e}
+.supply-cell:hover .tooltip{display:block}
+
+@media(max-width:700px){
+  .main-grid{grid-template-columns:1fr;padding:14px 10px}
+  .stat-cards{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<header>
+  <h1>TSD-TMDSS Inventory</h1>
+  <button class="header-link" onclick="showSummary()">Inventory Summary</button>
+</header>
+
+<!-- MAIN PAGE -->
+<div id="main-page">
+  <div class="main-grid">
+
+    <!-- CURRENT INVENTORY -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Current Inventory</span>
+        <div class="panel-actions">
+          <div class="search-wrap">
+            <input type="text" placeholder="Search Supply" id="search-current" oninput="loadTable('current')"/>
+            <span class="search-icon"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="#888" stroke-width="2"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#888" stroke-width="2" stroke-linecap="round"/></svg></span>
+          </div>
+          <button class="btn-refresh" id="refresh-current" title="Refresh" onclick="loadTable('current')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="btn-edit" onclick="openModal('current')">
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M14.7 2.3a1 1 0 0 1 1.4 0l1.6 1.6a1 1 0 0 1 0 1.4L6.5 16.5 2 18l1.5-4.5L14.7 2.3z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            Edit
+          </button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>No.</th><th>Supply Name</th><th>Quantity</th><th>Date Received</th><th></th></tr></thead>
+          <tbody id="tbody-current"></tbody>
+        </table>
+        <button class="add-row-btn" onclick="openModal('current')">
+          <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><line x1="10" y1="3" x2="10" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Add item
+        </button>
+      </div>
+    </div>
+
+    <!-- SUPPLY GIVEN OUT -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Supply Given Out</span>
+        <div class="panel-actions">
+          <div class="search-wrap">
+            <input type="text" placeholder="Search Supply" id="search-given" oninput="loadTable('given')"/>
+            <span class="search-icon"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="#888" stroke-width="2"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#888" stroke-width="2" stroke-linecap="round"/></svg></span>
+          </div>
+          <button class="btn-refresh" id="refresh-given" title="Refresh" onclick="loadTable('given')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="btn-edit" onclick="openModal('given')">
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M14.7 2.3a1 1 0 0 1 1.4 0l1.6 1.6a1 1 0 0 1 0 1.4L6.5 16.5 2 18l1.5-4.5L14.7 2.3z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            Edit
+          </button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>No.</th><th>Supply Name</th><th>Quantity</th><th>Who Received</th><th>Date Given</th><th></th></tr></thead>
+          <tbody id="tbody-given"></tbody>
+        </table>
+        <button class="add-row-btn" onclick="openModal('given')">
+          <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><line x1="10" y1="3" x2="10" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Add item
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- SUMMARY PAGE -->
+<div id="summary-page">
+  <div class="summary-topbar">
+    <button class="back-btn" onclick="hideSummary()">
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><line x1="17" y1="10" x2="3" y2="10" stroke="#fff" stroke-width="2" stroke-linecap="round"/><polyline points="9,4 3,10 9,16" stroke="#fff" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      Back
+    </button>
+    <div class="filter-wrap">
+      <button class="filter-btn active" onclick="setSummaryFilter(this,'all')">All</button>
+      <button class="filter-btn" onclick="setSummaryFilter(this,'inventory')">Inventory</button>
+      <button class="filter-btn" onclick="setSummaryFilter(this,'given')">Given Out</button>
+    </div>
+    <div class="search-wrap" style="width:200px">
+      <input type="text" placeholder="Search transactions" id="search-summary" oninput="renderSummaryTable()"/>
+      <span class="search-icon"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="#888" stroke-width="2"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#888" stroke-width="2" stroke-linecap="round"/></svg></span>
+    </div>
+    <div class="export-btns">
+      <button class="btn-export" onclick="printSummary()">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><rect x="3" y="7" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="M6 7V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v3" stroke="currentColor" stroke-width="1.7"/><line x1="6" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Print
+      </button>
+      <button class="btn-export pdf" onclick="exportPDF()">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v4h4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        Export PDF
+      </button>
+    </div>
+  </div>
+  <div class="stat-cards">
+    <div class="stat-card"><div class="stat-lbl">Total Transactions</div><div class="stat-val" id="stat-total">—</div></div>
+    <div class="stat-card inv"><div class="stat-lbl">Inventory Units</div><div class="stat-val" id="stat-inv">—</div></div>
+    <div class="stat-card giv"><div class="stat-lbl">Supply Given Out</div><div class="stat-val" id="stat-giv">—</div></div>
+  </div>
+  <div class="sum-card">
+    <div style="padding:16px 20px 12px;border-bottom:1.5px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <span class="panel-title">All Transactions</span>
+      <span id="txn-count" style="font-size:.78rem;color:var(--muted);font-weight:600"></span>
+    </div>
+    <div class="table-wrap" style="max-height:480px;border-radius:0">
+      <table>
+        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Date / Recipient</th></tr></thead>
+        <tbody id="tbody-summary"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="overlay" id="overlay-main">
+  <div class="modal-box">
+    <h2 id="modal-title">Add Item</h2>
+
+    <!-- Inventory: supply name text input -->
+    <div id="f-name-wrap">
+      <label>Supply Name</label>
+      <input type="text" id="f-name" placeholder="e.g. Ballpen" autocomplete="off"/>
+    </div>
+
+    <!-- Given-out: supply dropdown -->
+    <div id="f-select-wrap" style="display:none">
+      <label>Supply Name</label>
+      <select id="f-select" onchange="onSupplyChange()">
+        <option value="">— Select a supply —</option>
+      </select>
+      <div id="f-stock-hint" class="hint"></div>
+    </div>
+
+    <label>Quantity</label>
+    <input type="number" id="f-qty" placeholder="e.g. 50" min="1"/>
+
+    <!-- Inventory: date received -->
+    <div id="f-date-received-wrap">
+      <label>Date Received</label>
+      <div class="cal-wrap">
+        <input type="text" id="f-date-received-display" placeholder="Select a date" readonly onclick="openCal('received')" autocomplete="off"/>
+        <input type="hidden" id="f-date-received"/>
+        <span class="cal-icon" onclick="openCal('received')"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><line x1="6" y1="2" x2="6" y2="6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="14" y1="2" x2="14" y2="6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="2" y1="9" x2="18" y2="9" stroke="currentColor" stroke-width="1.5"/></svg></span>
+        <div class="cal-drop" id="cal-received">
+          <div class="cal-nav"><button type="button" class="cal-nav-btn" onclick="calPrev('received')">&#8249;</button><span class="cal-month" id="cal-received-label"></span><button type="button" class="cal-nav-btn" onclick="calNext('received')">&#8250;</button></div>
+          <div class="cal-wdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+          <div class="cal-days" id="cal-received-days"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Given-out: who received -->
+    <div id="f-who-wrap" style="display:none">
+      <label>Who Received</label>
+      <input type="text" id="f-who" placeholder="e.g. Juan dela Cruz" autocomplete="off"/>
+    </div>
+
+    <!-- Given-out: date given -->
+    <div id="f-date-given-wrap" style="display:none">
+      <label>Date Given</label>
+      <div class="cal-wrap">
+        <input type="text" id="f-date-given-display" placeholder="Select a date" readonly onclick="openCal('given')" autocomplete="off"/>
+        <input type="hidden" id="f-date-given"/>
+        <span class="cal-icon" onclick="openCal('given')"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><line x1="6" y1="2" x2="6" y2="6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="14" y1="2" x2="14" y2="6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="2" y1="9" x2="18" y2="9" stroke="currentColor" stroke-width="1.5"/></svg></span>
+        <div class="cal-drop" id="cal-given">
+          <div class="cal-nav"><button type="button" class="cal-nav-btn" onclick="calPrev('given')">&#8249;</button><span class="cal-month" id="cal-given-label"></span><button type="button" class="cal-nav-btn" onclick="calNext('given')">&#8250;</button></div>
+          <div class="cal-wdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+          <div class="cal-days" id="cal-given-days"></div>
+        </div>
+      </div>
+    </div>
+
+    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(required — recorded as editor)</span></label>
+    <input type="text" id="f-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-save" id="btn-save" onclick="saveItem()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT GIVEN-OUT MODAL -->
+<div class="overlay" id="overlay-edit">
+  <div class="modal-box">
+    <h2>Edit Supply Given Out</h2>
+    <input type="hidden" id="eg-id"/>
+    <label>Supply Name</label>
+    <input type="text" id="eg-supply" readonly style="background:#f0f0f5;color:var(--muted);cursor:default"/>
+    <label>Quantity</label>
+    <input type="number" id="eg-qty" min="1" placeholder="Quantity"/>
+    <div id="eg-hint" class="hint"></div>
+    <label>Who Received</label>
+    <input type="text" id="eg-who" placeholder="e.g. Juan dela Cruz" autocomplete="off"/>
+    <label>Date Given</label>
+    <div class="cal-wrap">
+      <input type="text" id="eg-date-display" placeholder="Select a date" readonly onclick="openCal('edit')" autocomplete="off"/>
+      <input type="hidden" id="eg-date"/>
+      <span class="cal-icon" onclick="openCal('edit')"><svg width="15" height="15" viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><line x1="6" y1="2" x2="6" y2="6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="14" y1="2" x2="14" y2="6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="2" y1="9" x2="18" y2="9" stroke="currentColor" stroke-width="1.5"/></svg></span>
+      <div class="cal-drop" id="cal-edit">
+        <div class="cal-nav"><button type="button" class="cal-nav-btn" onclick="calPrev('edit')">&#8249;</button><span class="cal-month" id="cal-edit-label"></span><button type="button" class="cal-nav-btn" onclick="calNext('edit')">&#8250;</button></div>
+        <div class="cal-wdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+        <div class="cal-days" id="cal-edit-days"></div>
+      </div>
+    </div>
+    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(required — recorded as editor)</span></label>
+    <input type="text" id="eg-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-save" id="btn-save-edit" onclick="saveEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+let currentItems = [], givenItems = [], activeTable = 'current';
+let summaryData = null, summaryFilter = 'all';
+let egOrigQty = 0, egOrigSupply = '';
+
+// Calendar state: { year, month, selected(ISO), displayEl, hiddenEl, dropEl, labelEl, daysEl }
+const calState = {};
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function isoToDisplay(iso){
+  if(!iso||iso==='—') return iso||'';
+  const p=iso.split('-');
+  if(p.length!==3) return iso;
+  return p[2]+' '+MONTHS_SHORT[parseInt(p[1])-1]+' '+parseInt(p[0]);
+}
+function toISO(y,m,d){ return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+function toDisplay(y,m,d){ return String(d).padStart(2,'0')+' '+MONTHS_SHORT[m-1]+' '+y; }
+
+// ── TOAST ──────────────────────────────────────────────────────────────────
+let toastT;
+function toast(msg,type='success'){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className='show '+type;
+  clearTimeout(toastT); toastT=setTimeout(()=>el.className='',2800);
+}
+
+// ── API ────────────────────────────────────────────────────────────────────
+async function api(path,opts={}){
+  const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});
+  if(!r.ok){ const e=await r.json().catch(()=>{}); throw new Error((e&&e.detail)||'Request failed'); }
+  if(r.status===204) return null;
+  return r.json();
+}
+
+// ── LOAD TABLES ────────────────────────────────────────────────────────────
+async function loadTable(type, silent=false){
+  const s=document.getElementById('search-'+type).value;
+  const ep=type==='current'?'/api/inventory':'/api/given-out';
+  const rb=document.getElementById('refresh-'+type);
+  if(rb) rb.classList.add('spinning');
+  if(!silent){
+    const tb=document.getElementById('tbody-'+type);
+    tb.innerHTML=`<tr class="loading-row"><td colspan="6"><span class="spinner"></span> Loading...</td></tr>`;
+  }
+  try{
+    const items=await api(ep+(s?'?search='+encodeURIComponent(s):''));
+    if(type==='current') currentItems=items; else givenItems=items;
+    renderTable(type);
+  }catch(e){ if(!silent) toast('Failed to load data','error'); }
+  finally{ if(rb) rb.classList.remove('spinning'); }
+}
+
+function renderTable(type){
+  const items=type==='current'?currentItems:givenItems;
+  const tbody=document.getElementById('tbody-'+type);
+  tbody.innerHTML='';
+  const ROWS=Math.max(items.length,12);
+  for(let i=0;i<ROWS;i++){
+    const tr=document.createElement('tr');
+    if(i<items.length){
+      const it=items[i];
+      if(type==='current'){
+        const invTip = it.changed_by ? `<span class="tooltip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.innerHTML=`<td>${i+1}</td><td class="supply-cell">${esc(it.supply_name)}${invTip}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
+      } else {
+        const givTip = it.changed_by ? `<span class="tooltip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.innerHTML=`<td>${i+1}</td><td class="supply-cell">${esc(it.supply_name)}${givTip}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
+      }
+    } else {
+      tr.className='empty-row';
+      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?4:5);
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+async function delItem(type,id){
+  try{
+    await api((type==='current'?'/api/inventory/':'/api/given-out/')+id,{method:'DELETE'});
+    toast('Item removed','success');
+    loadTable('current'); if(type==='given') loadTable('given');
+  }catch(e){ toast('Delete failed: '+e.message,'error'); }
+}
+
+// ── CALENDAR ───────────────────────────────────────────────────────────────
+function initCal(id, displayId, hiddenId, dropId, labelId, daysId){
+  const today=new Date();
+  calState[id]={ year:today.getFullYear(), month:today.getMonth(), selected:null, displayEl:document.getElementById(displayId), hiddenEl:document.getElementById(hiddenId), dropEl:document.getElementById(dropId), labelEl:document.getElementById(labelId), daysEl:document.getElementById(daysId) };
+  renderCal(id);
+}
+function openCal(id){
+  // Close all other cals
+  Object.keys(calState).forEach(k=>{ if(k!==id) document.getElementById('cal-'+k).classList.remove('open'); });
+  document.getElementById('cal-'+id).classList.toggle('open');
+  renderCal(id);
+}
+function calPrev(id){ calState[id].month--; if(calState[id].month<0){calState[id].month=11;calState[id].year--;} renderCal(id); }
+function calNext(id){ calState[id].month++; if(calState[id].month>11){calState[id].month=0;calState[id].year++;} renderCal(id); }
+function renderCal(id){
+  const s=calState[id]; if(!s) return;
+  s.labelEl.textContent=MONTHS[s.month]+' '+s.year;
+  const today=new Date();
+  const first=new Date(s.year,s.month,1).getDay();
+  const days=new Date(s.year,s.month+1,0).getDate();
+  s.daysEl.innerHTML='';
+  for(let b=0;b<first;b++){ const e=document.createElement('button'); e.type='button'; e.className='cal-day'; e.disabled=true; s.daysEl.appendChild(e); }
+  for(let d=1;d<=days;d++){
+    const btn=document.createElement('button'); btn.type='button'; btn.className='cal-day'; btn.textContent=d;
+    const iso=toISO(s.year,s.month+1,d);
+    if(today.getFullYear()===s.year&&today.getMonth()===s.month&&today.getDate()===d) btn.classList.add('today');
+    if(s.selected===iso) btn.classList.add('selected');
+    btn.addEventListener('click',()=>{
+      s.selected=iso;
+      s.displayEl.value=toDisplay(s.year,s.month+1,d);
+      s.hiddenEl.value=iso;
+      document.getElementById('cal-'+id).classList.remove('open');
+      renderCal(id);
+    });
+    s.daysEl.appendChild(btn);
+  }
+}
+// Close calendars on outside click
+document.addEventListener('click',function(e){
+  Object.keys(calState).forEach(id=>{
+    const drop=document.getElementById('cal-'+id);
+    if(drop&&drop.classList.contains('open')){
+      // Check if click is inside the cal-wrap parent
+      if(!drop.parentElement.contains(e.target)) drop.classList.remove('open');
+    }
+  });
+});
+
+// ── ADD/EDIT MODAL ─────────────────────────────────────────────────────────
+function openModal(type){
+  activeTable=type;
+  document.getElementById('modal-title').textContent = type==='current'?'Add to Current Inventory':'Give Out Supply';
+
+  // Show/hide fields
+  document.getElementById('f-name-wrap').style.display        = type==='current'?'':'none';
+  document.getElementById('f-select-wrap').style.display      = type==='given'?'':'none';
+  document.getElementById('f-date-received-wrap').style.display = type==='current'?'':'none';
+  document.getElementById('f-who-wrap').style.display         = type==='given'?'':'none';
+  document.getElementById('f-date-given-wrap').style.display  = type==='given'?'':'none';
+
+  // Reset fields
+  document.getElementById('f-name').value='';
+  document.getElementById('f-qty').value='';
+  document.getElementById('f-who').value='';
+  document.getElementById('f-date-received-display').value='';
+  document.getElementById('f-date-received').value='';
+  document.getElementById('f-date-given-display').value='';
+  document.getElementById('f-date-given').value='';
+  document.getElementById('f-stock-hint').textContent='';
+  document.getElementById('f-stock-hint').className='hint';
+  document.getElementById('f-changed-by').value='';
+
+  if(type==='given'){
+    // Populate supply dropdown
+    const sel=document.getElementById('f-select');
+    sel.innerHTML='<option value="">— Select a supply —</option>';
+    currentItems.forEach(it=>{
+      const o=document.createElement('option');
+      o.value=it.supply_name; o.dataset.qty=it.quantity;
+      o.textContent=it.supply_name+' ('+it.quantity+' available)';
+      sel.appendChild(o);
+    });
+    sel.value='';
+    sel.className='';
+  }
+
+  // Init calendars
+  initCal('received','f-date-received-display','f-date-received','cal-received','cal-received-label','cal-received-days');
+  initCal('given','f-date-given-display','f-date-given','cal-given','cal-given-label','cal-given-days');
+
+  document.getElementById('overlay-main').style.display='flex';
+  setTimeout(()=>{ (type==='current'?document.getElementById('f-name'):document.getElementById('f-select')).focus(); },50);
+}
+
+function closeModal(){
+  document.getElementById('overlay-main').style.display='none';
+  ['cal-received','cal-given'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.remove('open'); });
+}
+
+function onSupplyChange(){
+  const sel=document.getElementById('f-select');
+  const hint=document.getElementById('f-stock-hint');
+  const qty=document.getElementById('f-qty');
+  if(sel.value&&sel.options[sel.selectedIndex].dataset.qty!==undefined){
+    const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty);
+    hint.textContent='✓ '+avail+' unit'+(avail!==1?'s':'')+' available';
+    hint.className='hint ok';
+    qty.max=avail; qty.value=''; qty.focus();
+  } else {
+    hint.textContent=''; hint.className='hint';
+    qty.removeAttribute('max');
+  }
+}
+
+async function saveItem(){
+  const qty=parseInt(document.getElementById('f-qty').value)||0;
+  const btn=document.getElementById('btn-save');
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
+  try{
+    if(activeTable==='current'){
+      const name=document.getElementById('f-name').value.trim();
+      if(!name){ toast('Enter a supply name','error'); return; }
+      if(qty<=0){ toast('Quantity must be > 0','error'); return; }
+      const dateReceived=document.getElementById('f-date-received').value||null;
+      const changedBy=document.getElementById('f-changed-by').value.trim();
+      if(!changedBy){ toast('Please enter your name','error'); return; }
+      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,quantity:qty,date_received:dateReceived,changed_by:changedBy})});
+      toast(name+' added to inventory!','success');
+      closeModal(); loadTable('current');
+    } else {
+      const sel=document.getElementById('f-select');
+      const supplyName=sel.value;
+      if(!supplyName){ toast('Select a supply','error'); return; }
+      if(qty<=0){ toast('Quantity must be > 0','error'); return; }
+      const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
+      if(qty>avail){ toast('Only '+avail+' available','error'); return; }
+      const who=document.getElementById('f-who').value.trim();
+      const dateGiven=document.getElementById('f-date-given').value||null;
+      const changedByG=document.getElementById('f-changed-by').value.trim();
+      if(!changedByG){ toast('Please enter your name','error'); return; }
+      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG})});
+      toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
+      closeModal(); loadTable('current'); loadTable('given');
+    }
+  }catch(e){ toast('Save failed: '+e.message,'error'); }
+  finally{ btn.disabled=false; btn.textContent='Save'; }
+}
+
+// Click outside to close main modal
+document.getElementById('overlay-main').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){ closeModal(); closeEditModal(); }
+  if(e.key==='Enter'&&document.getElementById('overlay-main').style.display==='flex') saveItem();
+});
+
+// ── EDIT GIVEN-OUT MODAL ───────────────────────────────────────────────────
+function openEditModal(id){
+  const it=givenItems.find(x=>x.id===id); if(!it) return;
+  egOrigQty=it.quantity; egOrigSupply=it.supply_name;
+  document.getElementById('eg-id').value=id;
+  document.getElementById('eg-supply').value=it.supply_name;
+  document.getElementById('eg-qty').value=it.quantity;
+  document.getElementById('eg-who').value=it.who_received||'';
+  document.getElementById('eg-date-display').value=isoToDisplay(it.date_given||'');
+  document.getElementById('eg-date').value=it.date_given||'';
+
+  const inv=currentItems.find(x=>x.supply_name===it.supply_name);
+  const avail=inv?inv.quantity:0;
+  const hint=document.getElementById('eg-hint');
+  hint.textContent='✓ '+avail+' still in inventory (current: '+egOrigQty+')';
+  hint.className='hint ok';
+
+  // Init edit calendar with pre-selected date
+  const today=new Date();
+  const iso=it.date_given||'';
+  let cy=today.getFullYear(), cm=today.getMonth();
+  if(iso){ const p=iso.split('-'); cy=parseInt(p[0]); cm=parseInt(p[1])-1; }
+  calState['edit']={ year:cy, month:cm, selected:iso||null, displayEl:document.getElementById('eg-date-display'), hiddenEl:document.getElementById('eg-date'), dropEl:document.getElementById('cal-edit'), labelEl:document.getElementById('cal-edit-label'), daysEl:document.getElementById('cal-edit-days') };
+  renderCal('edit');
+  document.getElementById('cal-edit').classList.remove('open');
+
+  document.getElementById('eg-changed-by').value='';
+  document.getElementById('overlay-edit').style.display='flex';
+  setTimeout(()=>document.getElementById('eg-qty').focus(),50);
+}
+
+function closeEditModal(){
+  document.getElementById('overlay-edit').style.display='none';
+  const el=document.getElementById('cal-edit'); if(el) el.classList.remove('open');
+}
+
+async function saveEdit(){
+  const id=parseInt(document.getElementById('eg-id').value);
+  const qty=parseInt(document.getElementById('eg-qty').value)||0;
+  const who=document.getElementById('eg-who').value.trim();
+  const date=document.getElementById('eg-date').value||null;
+  const changedByE=document.getElementById('eg-changed-by').value.trim();
+  if(!changedByE){ toast('Please enter your name','error'); return; }
+  const btn=document.getElementById('btn-save-edit');
+
+  if(qty<=0){ toast('Quantity must be > 0','error'); return; }
+
+  const diff=qty-egOrigQty;
+  if(diff>0){
+    const inv=currentItems.find(x=>x.supply_name===egOrigSupply);
+    const avail=inv?inv.quantity:0;
+    if(diff>avail){ toast('Only '+avail+' available in inventory','error'); return; }
+  }
+
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
+  try{
+    await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify({supply_name:egOrigSupply,quantity:qty,who_received:who||null,date_given:date,changed_by:changedByE})});
+    toast('Record updated!','success');
+    closeEditModal(); loadTable('current'); loadTable('given');
+  }catch(e){ toast('Save failed: '+e.message,'error'); }
+  finally{ btn.disabled=false; btn.textContent='Save Changes'; }
+}
+
+document.getElementById('overlay-edit').addEventListener('click',function(e){ if(e.target===this) closeEditModal(); });
+
+// ── SUMMARY ────────────────────────────────────────────────────────────────
+function showSummary(){
+  document.getElementById('main-page').classList.add('hidden');
+  document.getElementById('summary-page').classList.add('active');
+  loadSummary();
+}
+function hideSummary(){
+  document.getElementById('main-page').classList.remove('hidden');
+  document.getElementById('summary-page').classList.remove('active');
+}
+function setSummaryFilter(btn,f){
+  summaryFilter=f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderSummaryTable();
+}
+async function loadSummary(){
+  try{ summaryData=await api('/api/summary'); updateStats(); renderSummaryTable(); }
+  catch(e){ toast('Failed to load summary','error'); }
+}
+function updateStats(){
+  if(!summaryData) return;
+  document.getElementById('stat-total').textContent=summaryData.inventory.total_lines+summaryData.given_out.total_lines;
+  document.getElementById('stat-inv').textContent=summaryData.inventory.total_units;
+  document.getElementById('stat-giv').textContent=summaryData.given_out.total_units;
+}
+function renderSummaryTable(){
+  if(!summaryData) return;
+  const search=(document.getElementById('search-summary').value||'').toLowerCase();
+  let rows=[];
+  if(summaryFilter!=='given') summaryData.inventory.items.forEach(it=>rows.push({type:'inv',name:it.supply_name,qty:it.quantity,detail:isoToDisplay(it.date_received||'')||'—'}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push({type:'giv',name:it.supply_name,qty:it.quantity,detail:it.who_received||'—'}));
+  if(search) rows=rows.filter(r=>r.name.toLowerCase().includes(search)||r.detail.toLowerCase().includes(search));
+  const tbody=document.getElementById('tbody-summary');
+  document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
+  if(!rows.length){ tbody.innerHTML=`<tr><td colspan="5" style="text-align:center;padding:32px;color:#aaa">No transactions found.</td></tr>`; return; }
+  tbody.innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':'Given Out'}</span></td><td>${esc(r.name)}</td><td style="font-weight:600">${r.qty}</td><td>${esc(r.detail)}</td></tr>`).join('');
+}
+
+// ── PRINT / PDF ────────────────────────────────────────────────────────────
+function printSummary(){ window.print(); }
+
+function exportPDF(){
+  if(!summaryData){ toast('No data to export','error'); return; }
+  if(typeof window.jspdf==='undefined'){ toast('PDF library not ready, try again','error'); return; }
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const search=(document.getElementById('search-summary').value||'').toLowerCase();
+  let rows=[];
+  if(summaryFilter!=='given') summaryData.inventory.items.forEach(it=>rows.push(['Received',it.supply_name,String(it.quantity),isoToDisplay(it.date_received||'')||'—']));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push(['Given Out',it.supply_name,String(it.quantity),it.who_received||'—']));
+  if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
+  const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
+  const pageW=doc.internal.pageSize.getWidth(), margin=14;
+  doc.setFillColor(26,31,143); doc.rect(0,0,pageW,22,'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('TSD-TMDSS INVENTORY SUMMARY',margin,14);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  doc.text('Generated: '+now,pageW-margin,14,{align:'right'});
+  doc.setTextColor(100,100,120); doc.setFontSize(8);
+  doc.text(rows.length+' record'+(rows.length!==1?'s':''),margin,29);
+  const bW=(pageW-margin*2-8)/3, bY=33, bH=18;
+  [[summaryData.inventory.total_lines+summaryData.given_out.total_lines,'TOTAL TRANSACTIONS',[26,31,143]],[summaryData.inventory.total_units,'INVENTORY UNITS',[26,143,74]],[summaryData.given_out.total_units,'SUPPLY GIVEN OUT',[192,57,43]]].forEach(([v,l,c],i)=>{
+    const x=margin+i*(bW+4);
+    doc.setFillColor(247,247,249); doc.roundedRect(x,bY,bW,bH,2,2,'F');
+    doc.setFillColor(...c); doc.rect(x,bY,3,bH,'F');
+    doc.setTextColor(...c); doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text(String(v),x+7,bY+12);
+    doc.setTextColor(120,120,130); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.text(l,x+7,bY+16.5);
+  });
+  doc.autoTable({startY:bY+bH+6,margin:{left:margin,right:margin},head:[['#','Type','Supply Name','Qty','Date / Recipient']],body:rows.map((r,i)=>[i+1,...r]),styles:{font:'helvetica',fontSize:9,cellPadding:3},headStyles:{fillColor:[26,31,143],textColor:255,fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[244,244,248]},columnStyles:{0:{cellWidth:10,halign:'center'},1:{cellWidth:28},3:{cellWidth:16,halign:'center'},4:{cellWidth:45}}});
+  const fy=doc.lastAutoTable.finalY+6;
+  doc.setDrawColor(220,220,220); doc.line(margin,fy,pageW-margin,fy);
+  doc.setTextColor(170,170,170); doc.setFontSize(7.5);
+  doc.text('TSD-TMDSS Inventory System · '+now,pageW/2,fy+5,{align:'center'});
+  doc.save('TSD-TMDSS_Inventory_'+new Date().toISOString().slice(0,10)+'.pdf');
+  toast('PDF downloaded!','success');
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+loadTable('current');
+loadTable('given');
+setInterval(()=>{ loadTable('current',true); loadTable('given',true); },15000);
+</script>
+</body>
+</html>
