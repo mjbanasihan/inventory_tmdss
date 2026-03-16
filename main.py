@@ -10,7 +10,13 @@ from database import engine, get_db, Base
 import models
 import schemas
 
-# Create tables on startup
+# Verify we're using PostgreSQL on Render (not SQLite)
+import sys
+db_url = str(engine.url)
+if "sqlite" in db_url:
+    print("WARNING: Running on SQLite — data will not persist across deploys!", file=sys.stderr)
+
+# Create tables on startup (safe — never drops existing data)
 Base.metadata.create_all(bind=engine)
 
 # ── Migrations ───────────────────────────────────────────────────────────────
