@@ -560,13 +560,19 @@ function openModal(type){
   document.getElementById('f-changed-by').value='';
 
   if(type==='given'){
-    // Populate supply dropdown
+    // Group by supply name, sum quantities
+    const grouped={};
+    currentItems.forEach(it=>{
+      const k=it.supply_name.toLowerCase();
+      if(!grouped[k]) grouped[k]={name:it.supply_name,qty:0};
+      grouped[k].qty+=it.quantity;
+    });
     const sel=document.getElementById('f-select');
     sel.innerHTML='<option value="">— Select a supply —</option>';
-    currentItems.forEach(it=>{
+    Object.values(grouped).forEach(g=>{
       const o=document.createElement('option');
-      o.value=it.supply_name; o.dataset.qty=it.quantity;
-      o.textContent=it.supply_name+' ('+it.quantity+' available)';
+      o.value=g.name; o.dataset.qty=g.qty;
+      o.textContent=g.name+' ('+g.qty+' available)';
       sel.appendChild(o);
     });
     sel.value='';

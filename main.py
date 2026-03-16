@@ -61,17 +61,7 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
 
 @app.post("/api/inventory", response_model=schemas.InventoryItem, status_code=201)
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
-    # If supply already exists (case-insensitive), increment its quantity instead
-    existing = db.query(models.InventoryItem).filter(
-        models.InventoryItem.supply_name.ilike(item.supply_name)
-    ).first()
-    if existing:
-        existing.quantity += item.quantity
-        if item.date_received:
-            existing.date_received = item.date_received
-        db.commit()
-        db.refresh(existing)
-        return existing
+    # Always create a new row — full history is preserved
     db_item = models.InventoryItem(**item.model_dump())
     db.add(db_item)
     db.commit()
@@ -112,36 +102,29 @@ def get_given_out(search: str = "", db: Session = Depends(get_db)):
 
 @app.post("/api/given-out", response_model=schemas.GivenOutItem, status_code=201)
 def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
-    # Check inventory has enough stock
-    inv_item = db.query(models.InventoryItem).filter(
+    # Check inventory has enough total stock across all rows
+    inv_items = db.query(models.InventoryItem).filter(
         models.InventoryItem.supply_name.ilike(item.supply_name)
-    ).first()
-    if not inv_item:
+    ).all()
+    if not inv_items:
         raise HTTPException(status_code=400, detail=f"'{item.supply_name}' not found in inventory")
-    if inv_item.quantity < item.quantity:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Only {inv_item.quantity} unit(s) available for '{item.supply_name}'"
-        )
+    total_avail = sum(i.quantity for i in inv_items)
+    if total_avail < item.quantity:
+        raise HTTPException(status_code=400, detail=f"Only {total_avail} unit(s) available for '{item.supply_name}'")
 
-    # Deduct from inventory
-    inv_item.quantity -= item.quantity
-    if inv_item.quantity == 0:
-        db.delete(inv_item)   # remove from inventory when fully depleted
+    # Deduct from inventory rows (oldest first)
+    remaining = item.quantity
+    for inv in inv_items:
+        if remaining <= 0:
+            break
+        if inv.quantity <= remaining:
+            remaining -= inv.quantity
+            db.delete(inv)
+        else:
+            inv.quantity -= remaining
+            remaining = 0
 
-    # Upsert given-out: combine if same supply + same recipient
-    existing = db.query(models.GivenOutItem).filter(
-        models.GivenOutItem.supply_name.ilike(item.supply_name),
-        models.GivenOutItem.who_received == item.who_received
-    ).first()
-    if existing:
-        existing.quantity += item.quantity
-        if item.date_given:
-            existing.date_given = item.date_given
-        db.commit()
-        db.refresh(existing)
-        return existing
-
+    # Always create a new row — full history preserved
     db_item = models.GivenOutItem(**item.model_dump())
     db.add(db_item)
     db.commit()
