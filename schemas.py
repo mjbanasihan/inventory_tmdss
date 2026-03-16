@@ -25,3 +25,17 @@ class GivenOutItemCreate(BaseModel):
 class GivenOutItem(GivenOutItemCreate):
     id: int
     model_config = {"from_attributes": True}
+
+
+# ─── TRANSACTION LOG ─────────────────────────────────────────────────────────
+
+class TransactionLog(BaseModel):
+    id:          int
+    txn_type:    str
+    supply_name: str
+    quantity:    int
+    detail:      Optional[str] = None
+    changed_by:  Optional[str] = None
+    created_at:  Optional[str] = None
+
+    model_config = {"from_attributes": True}

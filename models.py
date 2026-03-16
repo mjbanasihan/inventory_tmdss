@@ -9,7 +9,7 @@ class InventoryItem(Base):
     supply_name   = Column(String, nullable=False)
     quantity      = Column(Integer, nullable=False, default=0)
     date_received = Column(String, nullable=True)
-    changed_by    = Column(String, nullable=True)  # last editor name
+    changed_by    = Column(String, nullable=True)
 
 
 class GivenOutItem(Base):
@@ -20,4 +20,17 @@ class GivenOutItem(Base):
     quantity     = Column(Integer, nullable=False, default=0)
     who_received = Column(String, nullable=True)
     date_given   = Column(String, nullable=True)
-    changed_by   = Column(String, nullable=True)  # last editor name
+    changed_by   = Column(String, nullable=True)
+
+
+class TransactionLog(Base):
+    """Append-only log — every add/edit is recorded here for the Summary page."""
+    __tablename__ = "transaction_log"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    txn_type     = Column(String, nullable=False)   # 'inventory' or 'given_out'
+    supply_name  = Column(String, nullable=False)
+    quantity     = Column(Integer, nullable=False)
+    detail       = Column(String, nullable=True)    # date_received or who_received
+    changed_by   = Column(String, nullable=True)
+    created_at   = Column(String, nullable=True)    # ISO datetime string

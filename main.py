@@ -4,22 +4,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List
-import os
+from datetime import datetime
+import os, sys
 
 from database import engine, get_db, Base
 import models
 import schemas
 
-# Verify we're using PostgreSQL on Render (not SQLite)
-import sys
-db_url = str(engine.url)
-if "sqlite" in db_url:
-    print("WARNING: Running on SQLite — data will not persist across deploys!", file=sys.stderr)
+# Warn if falling back to SQLite
+if "sqlite" in str(engine.url):
+    print("WARNING: Using SQLite — data will not persist on Render!", file=sys.stderr)
 
-# Create tables on startup (safe — never drops existing data)
+# Create tables (safe — never drops existing data)
 Base.metadata.create_all(bind=engine)
 
-# ── Migrations ───────────────────────────────────────────────────────────────
+# ── Migrations ────────────────────────────────────────────────────────────────
 def run_migrations():
     migrations = [
         "ALTER TABLE given_out_items ADD COLUMN date_given VARCHAR",
@@ -32,41 +31,63 @@ def run_migrations():
                 conn.execute(text(sql))
                 conn.commit()
             except Exception:
-                pass  # Column already exists
+                pass
 
 run_migrations()
 
-app = FastAPI(
-    title="TSD-TMDSS Inventory API",
-    description="Inventory management system for TSD-TMDSS",
-    version="1.0.0"
-)
+app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ─── CURRENT INVENTORY ROUTES ────────────────────────────────────────────────
+def log_txn(db, txn_type, supply_name, quantity, detail=None, changed_by=None):
+    """Append a record to the transaction log."""
+    entry = models.TransactionLog(
+        txn_type=txn_type,
+        supply_name=supply_name,
+        quantity=quantity,
+        detail=detail,
+        changed_by=changed_by,
+        created_at=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    )
+    db.add(entry)
+
+# ─── INVENTORY ────────────────────────────────────────────────────────────────
 
 @app.get("/api/inventory", response_model=List[schemas.InventoryItem])
 def get_inventory(search: str = "", db: Session = Depends(get_db)):
-    query = db.query(models.InventoryItem)
+    q = db.query(models.InventoryItem)
     if search:
-        query = query.filter(models.InventoryItem.supply_name.ilike(f"%{search}%"))
-    return query.order_by(models.InventoryItem.id).all()
+        q = q.filter(models.InventoryItem.supply_name.ilike(f"%{search}%"))
+    return q.order_by(models.InventoryItem.id).all()
 
 
 @app.post("/api/inventory", response_model=schemas.InventoryItem, status_code=201)
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
-    # Always create a new row — full history is preserved
-    db_item = models.InventoryItem(**item.model_dump())
-    db.add(db_item)
+    # Upsert: merge into existing row so current inventory stays consolidated
+    existing = db.query(models.InventoryItem).filter(
+        models.InventoryItem.supply_name.ilike(item.supply_name)
+    ).first()
+    if existing:
+        existing.quantity += item.quantity
+        if item.date_received:
+            existing.date_received = item.date_received
+        if item.changed_by:
+            existing.changed_by = item.changed_by
+        db.commit()
+        db.refresh(existing)
+        result = existing
+    else:
+        db_item = models.InventoryItem(**item.model_dump())
+        db.add(db_item)
+        db.commit()
+        db.refresh(db_item)
+        result = db_item
+
+    # Always log every add as a separate transaction
+    log_txn(db, "inventory", item.supply_name, item.quantity,
+            detail=item.date_received, changed_by=item.changed_by)
     db.commit()
-    db.refresh(db_item)
-    return db_item
+    return result
 
 
 @app.put("/api/inventory/{item_id}", response_model=schemas.InventoryItem)
@@ -90,19 +111,19 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
-# ─── SUPPLY GIVEN OUT ROUTES ──────────────────────────────────────────────────
+# ─── GIVEN OUT ────────────────────────────────────────────────────────────────
 
 @app.get("/api/given-out", response_model=List[schemas.GivenOutItem])
 def get_given_out(search: str = "", db: Session = Depends(get_db)):
-    query = db.query(models.GivenOutItem)
+    q = db.query(models.GivenOutItem)
     if search:
-        query = query.filter(models.GivenOutItem.supply_name.ilike(f"%{search}%"))
-    return query.order_by(models.GivenOutItem.id).all()
+        q = q.filter(models.GivenOutItem.supply_name.ilike(f"%{search}%"))
+    return q.order_by(models.GivenOutItem.id).all()
 
 
 @app.post("/api/given-out", response_model=schemas.GivenOutItem, status_code=201)
 def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
-    # Check inventory has enough total stock across all rows
+    # Check total available stock
     inv_items = db.query(models.InventoryItem).filter(
         models.InventoryItem.supply_name.ilike(item.supply_name)
     ).all()
@@ -112,7 +133,7 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
     if total_avail < item.quantity:
         raise HTTPException(status_code=400, detail=f"Only {total_avail} unit(s) available for '{item.supply_name}'")
 
-    # Deduct from inventory rows (oldest first)
+    # Deduct from inventory rows oldest first
     remaining = item.quantity
     for inv in inv_items:
         if remaining <= 0:
@@ -124,9 +145,13 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
             inv.quantity -= remaining
             remaining = 0
 
-    # Always create a new row — full history preserved
+    # Always create a new given-out row (full history)
     db_item = models.GivenOutItem(**item.model_dump())
     db.add(db_item)
+
+    # Log the transaction
+    log_txn(db, "given_out", item.supply_name, item.quantity,
+            detail=item.who_received, changed_by=item.changed_by)
     db.commit()
     db.refresh(db_item)
     return db_item
@@ -138,31 +163,31 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    qty_diff = item.quantity - db_item.quantity  # positive = more given out, negative = returning
+    qty_diff = item.quantity - db_item.quantity
 
     if qty_diff != 0:
-        inv_item = db.query(models.InventoryItem).filter(
+        inv_items = db.query(models.InventoryItem).filter(
             models.InventoryItem.supply_name.ilike(item.supply_name)
-        ).first()
+        ).all()
         if qty_diff > 0:
-            # Giving out more — check stock
-            if not inv_item or inv_item.quantity < qty_diff:
-                available = inv_item.quantity if inv_item else 0
-                raise HTTPException(status_code=400, detail=f"Only {available} unit(s) available")
-            inv_item.quantity -= qty_diff
-            if inv_item.quantity == 0:
-                db.delete(inv_item)
+            total_avail = sum(i.quantity for i in inv_items)
+            if total_avail < qty_diff:
+                raise HTTPException(status_code=400, detail=f"Only {total_avail} unit(s) available")
+            remaining = qty_diff
+            for inv in inv_items:
+                if remaining <= 0: break
+                if inv.quantity <= remaining:
+                    remaining -= inv.quantity
+                    db.delete(inv)
+                else:
+                    inv.quantity -= remaining
+                    remaining = 0
         else:
-            # Returning units back to inventory
-            if inv_item:
-                inv_item.quantity += abs(qty_diff)
+            # Return units to inventory
+            if inv_items:
+                inv_items[0].quantity += abs(qty_diff)
             else:
-                # Re-create inventory row if it was fully depleted
-                restored = models.InventoryItem(
-                    supply_name=item.supply_name,
-                    quantity=abs(qty_diff)
-                )
-                db.add(restored)
+                db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
 
     for key, value in item.model_dump().items():
         setattr(db_item, key, value)
@@ -177,40 +202,38 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    # Restore quantity back to inventory on delete
+    # Restore to inventory
     inv_item = db.query(models.InventoryItem).filter(
         models.InventoryItem.supply_name.ilike(db_item.supply_name)
     ).first()
     if inv_item:
         inv_item.quantity += db_item.quantity
     else:
-        restored = models.InventoryItem(
-            supply_name=db_item.supply_name,
-            quantity=db_item.quantity
-        )
-        db.add(restored)
+        db.add(models.InventoryItem(supply_name=db_item.supply_name, quantity=db_item.quantity))
 
     db.delete(db_item)
     db.commit()
 
 
-# ─── SUMMARY ROUTE ───────────────────────────────────────────────────────────
+# ─── SUMMARY — reads from transaction log ────────────────────────────────────
 
 @app.get("/api/summary")
 def get_summary(db: Session = Depends(get_db)):
-    inventory_items = db.query(models.InventoryItem).all()
-    given_out_items = db.query(models.GivenOutItem).all()
+    logs = db.query(models.TransactionLog).order_by(models.TransactionLog.id).all()
+
+    inv_logs  = [l for l in logs if l.txn_type == "inventory"]
+    giv_logs  = [l for l in logs if l.txn_type == "given_out"]
 
     return {
         "inventory": {
-            "total_lines": len(inventory_items),
-            "total_units": sum(i.quantity for i in inventory_items),
-            "items": [schemas.InventoryItem.model_validate(i) for i in inventory_items]
+            "total_lines": len(inv_logs),
+            "total_units": sum(l.quantity for l in inv_logs),
+            "items": [schemas.TransactionLog.model_validate(l) for l in inv_logs]
         },
         "given_out": {
-            "total_lines": len(given_out_items),
-            "total_units": sum(i.quantity for i in given_out_items),
-            "items": [schemas.GivenOutItem.model_validate(i) for i in given_out_items]
+            "total_lines": len(giv_logs),
+            "total_units": sum(l.quantity for l in giv_logs),
+            "items": [schemas.TransactionLog.model_validate(l) for l in giv_logs]
         }
     }
 
@@ -222,7 +245,6 @@ frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fronte
 @app.get("/", include_in_schema=False)
 @app.get("/{full_path:path}", include_in_schema=False)
 def serve_frontend(full_path: str = ""):
-    if full_path.startswith("api/") or full_path == "docs" or full_path == "openapi.json":
-        from fastapi import HTTPException
+    if full_path.startswith("api/") or full_path in ("docs", "openapi.json"):
         raise HTTPException(status_code=404)
     return FileResponse(os.path.join(frontend_path, "index.html"))
