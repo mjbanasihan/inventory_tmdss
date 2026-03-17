@@ -32,5 +32,6 @@ class TransactionLog(Base):
     supply_name  = Column(String, nullable=False)
     quantity     = Column(Integer, nullable=False)
     detail       = Column(String, nullable=True)    # date_received or who_received
+    date_given   = Column(String, nullable=True)    # date_given for given_out rows
     changed_by   = Column(String, nullable=True)
     created_at   = Column(String, nullable=True)    # ISO datetime string

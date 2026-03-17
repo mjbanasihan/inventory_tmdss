@@ -24,6 +24,7 @@ def run_migrations():
         "ALTER TABLE given_out_items ADD COLUMN date_given VARCHAR",
         "ALTER TABLE given_out_items ADD COLUMN changed_by VARCHAR",
         "ALTER TABLE inventory_items ADD COLUMN changed_by VARCHAR",
+        "ALTER TABLE transaction_log ADD COLUMN date_given VARCHAR",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -39,13 +40,14 @@ app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-def log_txn(db, txn_type, supply_name, quantity, detail=None, changed_by=None):
+def log_txn(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None):
     """Append a record to the transaction log."""
     entry = models.TransactionLog(
         txn_type=txn_type,
         supply_name=supply_name,
         quantity=quantity,
         detail=detail,
+        date_given=date_given,
         changed_by=changed_by,
         created_at=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
     )
@@ -151,7 +153,7 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
 
     # Log the transaction
     log_txn(db, "given_out", item.supply_name, item.quantity,
-            detail=item.who_received, changed_by=item.changed_by)
+            detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by)
     db.commit()
     db.refresh(db_item)
     return db_item

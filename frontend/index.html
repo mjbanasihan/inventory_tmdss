@@ -743,8 +743,8 @@ function renderSummaryTable(){
   if(!summaryData) return;
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>rows.push({type:'inv',name:it.supply_name,qty:it.quantity,isoDate:it.date_received||'',detail:isoToDisplay(it.date_received||'')||'—',changed_by:it.changed_by||''}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push({type:'giv',name:it.supply_name,qty:it.quantity,isoDate:it.date_given||'',detail:isoToDisplay(it.date_given||'')||'—',changed_by:it.who_received||''}));
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>rows.push({type:'inv',name:it.supply_name,qty:it.quantity,isoDate:it.detail||'',detail:isoToDisplay(it.detail||'')||'—',changed_by:it.changed_by||''}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push({type:'giv',name:it.supply_name,qty:it.quantity,isoDate:it.date_given||'',detail:isoToDisplay(it.date_given||'')||'—',changed_by:it.detail||''}));
   // Sort chronologically — rows without a date go to the end
   rows.sort((a,b)=>{
     if(!a.isoDate && !b.isoDate) return 0;
@@ -770,7 +770,7 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.date_received||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.date_received||'')||'—']}));
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—']}));
   if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—']}));
   pdfRowsRaw.sort((a,b)=>{ if(!a.iso&&!b.iso)return 0; if(!a.iso)return 1; if(!b.iso)return -1; return a.iso.localeCompare(b.iso); });
   pdfRowsRaw.forEach(r=>rows.push(r.row));

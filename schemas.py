@@ -35,6 +35,7 @@ class TransactionLog(BaseModel):
     supply_name: str
     quantity:    int
     detail:      Optional[str] = None
+    date_given:  Optional[str] = None
     changed_by:  Optional[str] = None
     created_at:  Optional[str] = None
 
