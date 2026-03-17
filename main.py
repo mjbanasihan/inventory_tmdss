@@ -168,53 +168,58 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
 
 @app.put("/api/given-out/{item_id}")
 def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
-    db_item = db.query(models.GivenOutItem).filter(models.GivenOutItem.id == item_id).first()
-    if not db_item:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    qty_diff = item.quantity - db_item.quantity
-
-    if qty_diff != 0:
-        inv_items = db.query(models.InventoryItem).filter(
-            models.InventoryItem.supply_name.ilike(item.supply_name)
-        ).all()
-        if qty_diff > 0:
-            total_avail = sum(i.quantity for i in inv_items)
-            if total_avail < qty_diff:
-                raise HTTPException(status_code=400, detail=f"Only {total_avail} unit(s) available")
-            remaining = qty_diff
-            for inv in inv_items:
-                if remaining <= 0: break
-                if inv.quantity <= remaining:
-                    remaining -= inv.quantity
-                    db.delete(inv)
-                else:
-                    inv.quantity -= remaining
-                    remaining = 0
-        else:
-            if inv_items:
-                inv_items[0].quantity += abs(qty_diff)
-            else:
-                db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
-
-    # Use raw SQL update — safe even if optional columns don't exist yet
+    import traceback
     try:
-        db.execute(text(
-            "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
-        ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
-    except Exception:
-        # Fallback: update without date_given if column missing
-        db.execute(text(
-            "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
-        ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
+        db_item = db.query(models.GivenOutItem).filter(models.GivenOutItem.id == item_id).first()
+        if not db_item:
+            raise HTTPException(status_code=404, detail="Item not found")
 
-    db.commit()
+        qty_diff = item.quantity - db_item.quantity
 
-    # Return the updated row
-    updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
-    if not updated:
-        raise HTTPException(status_code=404, detail="Item not found after update")
-    return dict(updated)
+        if qty_diff != 0:
+            inv_items = db.query(models.InventoryItem).filter(
+                models.InventoryItem.supply_name.ilike(item.supply_name)
+            ).all()
+            if qty_diff > 0:
+                total_avail = sum(i.quantity for i in inv_items)
+                if total_avail < qty_diff:
+                    raise HTTPException(status_code=400, detail=f"Only {total_avail} unit(s) available")
+                remaining = qty_diff
+                for inv in inv_items:
+                    if remaining <= 0: break
+                    if inv.quantity <= remaining:
+                        remaining -= inv.quantity
+                        db.delete(inv)
+                    else:
+                        inv.quantity -= remaining
+                        remaining = 0
+            else:
+                if inv_items:
+                    inv_items[0].quantity += abs(qty_diff)
+                else:
+                    db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
+
+        try:
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
+        except Exception:
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
+
+        db.commit()
+
+        updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
+        if not updated:
+            raise HTTPException(status_code=404, detail="Item not found after update")
+        return dict(updated)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("PUT /api/given-out ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/given-out/{item_id}", status_code=204)

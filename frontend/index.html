@@ -428,7 +428,11 @@ function toast(msg,type='success'){
 // ── API ────────────────────────────────────────────────────────────────────
 async function api(path,opts={}){
   const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});
-  if(!r.ok){ const e=await r.json().catch(()=>{}); throw new Error((e&&e.detail)||'Request failed'); }
+  if(!r.ok){
+    let detail='Request failed ('+r.status+')';
+    try{ const e=await r.json(); detail=e.detail||detail; }catch(e2){}
+    throw new Error(detail);
+  }
   if(r.status===204) return null;
   return r.json();
 }
