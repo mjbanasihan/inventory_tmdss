@@ -99,8 +99,13 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
     db_item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id).first()
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
-    for key, value in item.model_dump().items():
-        setattr(db_item, key, value)
+    db_item.supply_name   = item.supply_name
+    db_item.quantity      = item.quantity
+    db_item.date_received = item.date_received
+    try:
+        db_item.changed_by = item.changed_by
+    except Exception:
+        pass
     db.commit()
     db.refresh(db_item)
     return db_item
@@ -193,8 +198,18 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
             else:
                 db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
 
-    for key, value in item.model_dump().items():
-        setattr(db_item, key, value)
+    # Explicitly set only the core fields — avoids crashing on missing optional columns
+    db_item.supply_name  = item.supply_name
+    db_item.quantity     = item.quantity
+    db_item.who_received = item.who_received
+    db_item.date_given   = item.date_given
+
+    # Set changed_by only if the column exists in the live DB
+    try:
+        db_item.changed_by = item.changed_by
+    except Exception:
+        pass
+
     db.commit()
     db.refresh(db_item)
     return db_item

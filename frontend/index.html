@@ -386,8 +386,6 @@ tbody tr:hover .row-tip{display:block}
         <div class="cal-days" id="cal-edit-days"></div>
       </div>
     </div>
-    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(required — recorded as editor)</span></label>
-    <input type="text" id="eg-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
 
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
@@ -690,7 +688,7 @@ async function saveEdit(){
   const who=document.getElementById('eg-who').value.trim();
   const date=document.getElementById('eg-date').value||null;
   const changedByE=document.getElementById('eg-changed-by').value.trim();
-  if(!changedByE){ toast('Please enter your name','error'); return; }
+  // changed_by is optional — don't block save if empty
   const btn=document.getElementById('btn-save-edit');
 
   if(qty<=0){ toast('Quantity must be > 0','error'); return; }
