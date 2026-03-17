@@ -122,126 +122,127 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
 
 # ─── GIVEN OUT ────────────────────────────────────────────────────────────────
 
-@app.get("/api/given-out", response_model=List[schemas.GivenOutItem])
+@app.get("/api/given-out")
 def get_given_out(search: str = "", db: Session = Depends(get_db)):
-    q = db.query(models.GivenOutItem)
     if search:
-        q = q.filter(models.GivenOutItem.supply_name.ilike(f"%{search}%"))
-    return q.order_by(models.GivenOutItem.id).all()
+        rows = db.execute(text(
+            "SELECT * FROM given_out_items WHERE supply_name ILIKE :s ORDER BY id"
+        ), {"s": f"%{search}%"}).mappings().all()
+    else:
+        rows = db.execute(text(
+            "SELECT * FROM given_out_items ORDER BY id"
+        )).mappings().all()
+    return [dict(r) for r in rows]
 
 
-@app.post("/api/given-out", response_model=schemas.GivenOutItem, status_code=201)
+@app.post("/api/given-out", status_code=201)
 def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
-    # Check total available stock
-    inv_items = db.query(models.InventoryItem).filter(
-        models.InventoryItem.supply_name.ilike(item.supply_name)
-    ).all()
-    if not inv_items:
+    # Check available stock
+    inv = db.execute(text(
+        "SELECT id, quantity FROM inventory_items WHERE supply_name ILIKE :sn LIMIT 1"
+    ), {"sn": item.supply_name}).mappings().first()
+    if not inv:
         raise HTTPException(status_code=400, detail=f"'{item.supply_name}' not found in inventory")
-    total_avail = sum(i.quantity for i in inv_items)
-    if total_avail < item.quantity:
-        raise HTTPException(status_code=400, detail=f"Only {total_avail} unit(s) available for '{item.supply_name}'")
+    if inv["quantity"] < item.quantity:
+        raise HTTPException(status_code=400, detail=f"Only {inv['quantity']} unit(s) available")
 
-    # Deduct from inventory rows oldest first
-    remaining = item.quantity
-    for inv in inv_items:
-        if remaining <= 0:
-            break
-        if inv.quantity <= remaining:
-            remaining -= inv.quantity
-            db.delete(inv)
-        else:
-            inv.quantity -= remaining
-            remaining = 0
+    # Deduct from inventory
+    new_qty = inv["quantity"] - item.quantity
+    if new_qty == 0:
+        db.execute(text("DELETE FROM inventory_items WHERE id=:id"), {"id": inv["id"]})
+    else:
+        db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_qty, "id": inv["id"]})
 
-    # Always create a new given-out row (full history)
-    db_item = models.GivenOutItem(**item.model_dump())
-    db.add(db_item)
+    # Insert given-out row
+    db.execute(text(
+        "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given) VALUES (:sn, :qty, :who, :dg)"
+    ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given})
 
-    # Log the transaction
-    log_txn(db, "given_out", item.supply_name, item.quantity,
-            detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by)
+    # Log transaction
+    db.execute(text(
+        "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, created_at) VALUES (:t, :sn, :qty, :det, :dg, :ca)"
+    ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
+        "det": item.who_received, "dg": item.date_given,
+        "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
+
     db.commit()
-    db.refresh(db_item)
-    return db_item
+
+    row = db.execute(text(
+        "SELECT * FROM given_out_items WHERE supply_name=:sn ORDER BY id DESC LIMIT 1"
+    ), {"sn": item.supply_name}).mappings().first()
+    return dict(row)
 
 
 @app.put("/api/given-out/{item_id}")
 def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
-    import traceback
-    try:
-        db_item = db.query(models.GivenOutItem).filter(models.GivenOutItem.id == item_id).first()
-        if not db_item:
-            raise HTTPException(status_code=404, detail="Item not found")
+    # Get current row
+    current = db.execute(text(
+        "SELECT * FROM given_out_items WHERE id=:id"
+    ), {"id": item_id}).mappings().first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Item not found")
 
-        qty_diff = item.quantity - db_item.quantity
+    qty_diff = item.quantity - current["quantity"]
 
-        if qty_diff != 0:
-            inv_items = db.query(models.InventoryItem).filter(
-                models.InventoryItem.supply_name.ilike(item.supply_name)
-            ).all()
-            if qty_diff > 0:
-                total_avail = sum(i.quantity for i in inv_items)
-                if total_avail < qty_diff:
-                    raise HTTPException(status_code=400, detail=f"Only {total_avail} unit(s) available")
-                remaining = qty_diff
-                for inv in inv_items:
-                    if remaining <= 0: break
-                    if inv.quantity <= remaining:
-                        remaining -= inv.quantity
-                        db.delete(inv)
-                    else:
-                        inv.quantity -= remaining
-                        remaining = 0
-                db.flush()  # apply deletes before continuing
-            else:
-                if inv_items:
-                    inv_items[0].quantity += abs(qty_diff)
-                    db.flush()
-                else:
-                    new_inv = models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff))
-                    db.add(new_inv)
-                    db.flush()
+    if qty_diff > 0:
+        # Giving out more — deduct from inventory
+        inv = db.execute(text(
+            "SELECT id, quantity FROM inventory_items WHERE supply_name ILIKE :sn LIMIT 1"
+        ), {"sn": item.supply_name}).mappings().first()
+        avail = inv["quantity"] if inv else 0
+        if avail < qty_diff:
+            raise HTTPException(status_code=400, detail=f"Only {avail} unit(s) available in inventory")
+        new_inv_qty = avail - qty_diff
+        if new_inv_qty == 0:
+            db.execute(text("DELETE FROM inventory_items WHERE id=:id"), {"id": inv["id"]})
+        else:
+            db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_inv_qty, "id": inv["id"]})
 
-        try:
+    elif qty_diff < 0:
+        # Returning units — add back to inventory
+        inv = db.execute(text(
+            "SELECT id, quantity FROM inventory_items WHERE supply_name ILIKE :sn LIMIT 1"
+        ), {"sn": item.supply_name}).mappings().first()
+        if inv:
+            db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"),
+                       {"q": inv["quantity"] + abs(qty_diff), "id": inv["id"]})
+        else:
             db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
-        except Exception:
-            db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
+                "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
+            ), {"sn": item.supply_name, "qty": abs(qty_diff)})
 
-        db.commit()
+    # Update the given-out row
+    db.execute(text(
+        "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
+    ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
 
-        updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
-        if not updated:
-            raise HTTPException(status_code=404, detail="Item not found after update")
-        return dict(updated)
+    db.commit()
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        print("PUT /api/given-out ERROR:", traceback.format_exc(), flush=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
+    return dict(updated)
 
 
 @app.delete("/api/given-out/{item_id}", status_code=204)
 def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
-    db_item = db.query(models.GivenOutItem).filter(models.GivenOutItem.id == item_id).first()
-    if not db_item:
+    row = db.execute(text(
+        "SELECT * FROM given_out_items WHERE id=:id"
+    ), {"id": item_id}).mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    # Restore to inventory
-    inv_item = db.query(models.InventoryItem).filter(
-        models.InventoryItem.supply_name.ilike(db_item.supply_name)
-    ).first()
-    if inv_item:
-        inv_item.quantity += db_item.quantity
+    # Restore quantity to inventory
+    inv = db.execute(text(
+        "SELECT id, quantity FROM inventory_items WHERE supply_name ILIKE :sn LIMIT 1"
+    ), {"sn": row["supply_name"]}).mappings().first()
+    if inv:
+        db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"),
+                   {"q": inv["quantity"] + row["quantity"], "id": inv["id"]})
     else:
-        db.add(models.InventoryItem(supply_name=db_item.supply_name, quantity=db_item.quantity))
+        db.execute(text(
+            "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
+        ), {"sn": row["supply_name"], "qty": row["quantity"]})
 
-    db.delete(db_item)
+    db.execute(text("DELETE FROM given_out_items WHERE id=:id"), {"id": item_id})
     db.commit()
 
 
