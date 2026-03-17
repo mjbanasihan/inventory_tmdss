@@ -691,10 +691,11 @@ async function saveEdit(){
   const qty=parseInt(document.getElementById('eg-qty').value)||0;
   const who=document.getElementById('eg-who').value.trim();
   const date=document.getElementById('eg-date').value||null;
-  const changedByE=document.getElementById('eg-changed-by').value.trim();
-  // changed_by is optional — don't block save if empty
   const btn=document.getElementById('btn-save-edit');
 
+  console.log('saveEdit called — id:', id, 'qty:', qty, 'who:', who, 'date:', date, 'supply:', egOrigSupply);
+
+  if(!id || isNaN(id)){ toast('Error: no record ID found','error'); return; }
   if(qty<=0){ toast('Quantity must be > 0','error'); return; }
 
   const diff=qty-egOrigQty;
@@ -706,10 +707,15 @@ async function saveEdit(){
 
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
-    await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify({supply_name:egOrigSupply,quantity:qty,who_received:who||null,date_given:date,changed_by:changedByE})});
+    const payload={supply_name:egOrigSupply,quantity:qty,who_received:who||null,date_given:date};
+    console.log('PUT payload:', JSON.stringify(payload));
+    await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify(payload)});
     toast('Record updated!','success');
     closeEditModal(); loadTable('current'); loadTable('given');
-  }catch(e){ toast('Save failed: '+e.message,'error'); }
+  }catch(e){
+    console.error('saveEdit error:', e);
+    toast('Save failed: '+e.message,'error');
+  }
   finally{ btn.disabled=false; btn.textContent='Save Changes'; }
 }
 
