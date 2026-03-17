@@ -335,7 +335,7 @@ tbody tr:hover .row-tip{display:block}
     <!-- Given-out: who received -->
     <div id="f-who-wrap" style="display:none">
       <label>Who Received</label>
-      <input type="text" id="f-who" placeholder="e.g. Jane Doe" autocomplete="off"/>
+      <input type="text" id="f-who" placeholder="e.g. Juan dela Cruz" autocomplete="off"/>
     </div>
 
     <!-- Given-out: date given -->
@@ -354,7 +354,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
 
     <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(required — recorded as editor)</span></label>
-    <input type="text" id="f-changed-by" placeholder="e.g. Jane Doe" autocomplete="off"/>
+    <input type="text" id="f-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
 
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -743,9 +743,16 @@ function renderSummaryTable(){
   if(!summaryData) return;
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
-  if(summaryFilter!=='given') summaryData.inventory.items.forEach(it=>rows.push({type:'inv',name:it.supply_name,qty:it.quantity,detail:isoToDisplay(it.detail||'')||'—',changed_by:it.changed_by||''}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push({type:'giv',name:it.supply_name,qty:it.quantity,detail:it.detail||'—',changed_by:it.changed_by||''}));
-  if(search) rows=rows.filter(r=>r.name.toLowerCase().includes(search)||r.detail.toLowerCase().includes(search));
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>rows.push({type:'inv',name:it.supply_name,qty:it.quantity,isoDate:it.date_received||'',detail:isoToDisplay(it.date_received||'')||'—',changed_by:it.changed_by||''}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push({type:'giv',name:it.supply_name,qty:it.quantity,isoDate:it.date_given||'',detail:isoToDisplay(it.date_given||'')||'—',changed_by:it.who_received||''}));
+  // Sort chronologically — rows without a date go to the end
+  rows.sort((a,b)=>{
+    if(!a.isoDate && !b.isoDate) return 0;
+    if(!a.isoDate) return 1;
+    if(!b.isoDate) return -1;
+    return a.isoDate.localeCompare(b.isoDate);
+  });
+  if(search) rows=rows.filter(r=>r.name.toLowerCase().includes(search)||r.detail.toLowerCase().includes(search)||r.changed_by.toLowerCase().includes(search));
   const tbody=document.getElementById('tbody-summary');
   document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
   if(!rows.length){ tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#aaa">No transactions found.</td></tr>`; return; }
@@ -762,8 +769,11 @@ function exportPDF(){
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
-  if(summaryFilter!=='given') summaryData.inventory.items.forEach(it=>rows.push(['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—']));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push(['Given Out',it.supply_name,String(it.quantity),it.detail||'—']));
+  let pdfRowsRaw=[];
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.date_received||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.date_received||'')||'—']}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—']}));
+  pdfRowsRaw.sort((a,b)=>{ if(!a.iso&&!b.iso)return 0; if(!a.iso)return 1; if(!b.iso)return -1; return a.iso.localeCompare(b.iso); });
+  pdfRowsRaw.forEach(r=>rows.push(r.row));
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
   const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
   const pageW=doc.internal.pageSize.getWidth(), margin=14;
