@@ -287,7 +287,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Date / Recipient</th><th>Edited By</th></tr></thead>
+        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Recipient / Date Received</th><th>Date Given</th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -469,7 +469,7 @@ function renderTable(type){
         tr.style.position='relative';
         tr.innerHTML=`<td class="supply-cell">${invTip}${i+1}</td><td>${esc(it.supply_name)}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
       } else {
-        const givTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        const givTip = it.who_received ? `<span class="row-tip">Received by: ${esc(it.who_received)}</span>` : '';
         tr.style.position='relative';
         tr.innerHTML=`<td class="supply-cell">${givTip}${i+1}</td><td>${esc(it.supply_name)}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
       }
@@ -760,20 +760,24 @@ function renderSummaryTable(){
   try {
     const search=(document.getElementById('search-summary').value||'').toLowerCase();
     let rows=[];
-    // Inventory rows — detail = date_received (ISO), changed_by = who added
+    // Inventory rows: detail=date_received, changed_by=editor
     if(summaryFilter!=='given'){
       (summaryData.inventory.items||[]).forEach(it=>{
-        const isoDate = (it.detail||'');
+        const isoDate=(it.detail||'');
         rows.push({type:'inv', name:it.supply_name||'', qty:it.quantity||0,
-          isoDate, detail: isoToDisplay(isoDate)||'—', changed_by: it.changed_by||''});
+          isoDate,
+          recipient: isoToDisplay(isoDate)||'—',   // Date Received
+          edited_by: it.changed_by||''});
       });
     }
-    // Given-out rows — detail = who_received, date_given = date given out
+    // Given-out rows: detail=who_received, date_given=date sort key
     if(summaryFilter!=='inventory'){
       (summaryData.given_out.items||[]).forEach(it=>{
-        const isoDate = (it.date_given||'');
+        const isoDate=(it.date_given||'');
         rows.push({type:'giv', name:it.supply_name||'', qty:it.quantity||0,
-          isoDate, detail: isoToDisplay(isoDate)||'—', changed_by: it.detail||''});
+          isoDate,
+          recipient: (it.detail||'—'),              // Who Received
+          edited_by: isoToDisplay(isoDate)||''});   // Date Given
       });
     }
     // Sort oldest → newest; undated rows go to end
@@ -785,8 +789,8 @@ function renderSummaryTable(){
     });
     if(search) rows=rows.filter(r=>
       (r.name||'').toLowerCase().includes(search)||
-      (r.detail||'').toLowerCase().includes(search)||
-      (r.changed_by||'').toLowerCase().includes(search)
+      (r.recipient||'').toLowerCase().includes(search)||
+      (r.edited_by||'').toLowerCase().includes(search)
     );
     const tbody=document.getElementById('tbody-summary');
     document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
@@ -797,13 +801,13 @@ function renderSummaryTable(){
         <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':'Given Out'}</span></td>
         <td>${esc(r.name)}</td>
         <td style="font-weight:600">${r.qty}</td>
-        <td>${esc(r.detail)}</td>
-        <td style="font-size:.75rem;color:var(--muted)">${r.changed_by?esc(r.changed_by):''}</td>
+        <td>${esc(r.recipient)}</td>
+        <td style="font-size:.75rem;color:var(--muted)">${esc(r.edited_by)}</td>
       </tr>`).join('');
   } catch(err) {
     console.error('renderSummaryTable error:', err);
     const tbody=document.getElementById('tbody-summary');
-    if(tbody) tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#c00">Error rendering table: ${esc(err.message)}</td></tr>`;
+    if(tbody) tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#c00">Error: ${esc(err.message)}</td></tr>`;
   }
 }
 
@@ -819,7 +823,7 @@ function exportPDF(){
   let rows=[];
   let pdfRowsRaw=[];
   if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—']}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—']}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),(it.detail||'—')+' · '+(isoToDisplay(it.date_given||'')||'')]}));
   pdfRowsRaw.sort((a,b)=>{ if(!a.iso&&!b.iso)return 0; if(!a.iso)return 1; if(!b.iso)return -1; return a.iso.localeCompare(b.iso); });
   pdfRowsRaw.forEach(r=>rows.push(r.row));
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
