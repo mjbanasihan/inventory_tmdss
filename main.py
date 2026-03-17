@@ -47,9 +47,11 @@ def col_exists(table, col):
     except Exception:
         return False
 
-HAS_DATE_GIVEN = col_exists("given_out_items", "date_given")
-HAS_TXN_DATE   = col_exists("transaction_log",  "date_given")
-print(f"Column detection — given_out_items.date_given: {HAS_DATE_GIVEN}, transaction_log.date_given: {HAS_TXN_DATE}", flush=True)
+HAS_DATE_GIVEN  = col_exists("given_out_items", "date_given")
+HAS_CB_GIVEN    = col_exists("given_out_items", "changed_by")
+HAS_TXN_DATE    = col_exists("transaction_log",  "date_given")
+HAS_CB_INV      = col_exists("inventory_items",  "changed_by")
+print(f"Columns — given_out.date_given:{HAS_DATE_GIVEN} given_out.changed_by:{HAS_CB_GIVEN} txn.date_given:{HAS_TXN_DATE} inv.changed_by:{HAS_CB_INV}", flush=True)
 
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
 
@@ -199,14 +201,22 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
             db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_qty, "id": inv["id"]})
 
         # Insert given-out row
-        if HAS_DATE_GIVEN:
+        if HAS_DATE_GIVEN and HAS_CB_GIVEN:
             db.execute(text(
                 "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given, changed_by) VALUES (:sn, :qty, :who, :dg, :cb)"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by})
-        else:
+        elif HAS_DATE_GIVEN:
+            db.execute(text(
+                "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given) VALUES (:sn, :qty, :who, :dg)"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given})
+        elif HAS_CB_GIVEN:
             db.execute(text(
                 "INSERT INTO given_out_items (supply_name, quantity, who_received, changed_by) VALUES (:sn, :qty, :who, :cb)"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "cb": item.changed_by})
+        else:
+            db.execute(text(
+                "INSERT INTO given_out_items (supply_name, quantity, who_received) VALUES (:sn, :qty, :who)"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received})
 
         # Log transaction
         if HAS_TXN_DATE:
@@ -273,15 +283,23 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
                     "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
                 ), {"sn": item.supply_name, "qty": abs(qty_diff)})
 
-        # Update — use flag to decide whether to include date_given
-        if HAS_DATE_GIVEN:
+        # Update — use flags to decide columns
+        if HAS_DATE_GIVEN and HAS_CB_GIVEN:
             db.execute(text(
                 "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg, changed_by=:cb WHERE id=:id"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by, "id": item_id})
-        else:
+        elif HAS_DATE_GIVEN:
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
+        elif HAS_CB_GIVEN:
             db.execute(text(
                 "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, changed_by=:cb WHERE id=:id"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "cb": item.changed_by, "id": item_id})
+        else:
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
 
         db.commit()
         updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
