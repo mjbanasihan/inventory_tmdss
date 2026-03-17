@@ -287,7 +287,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Recipient / Date Received</th><th>Date Given</th></tr></thead>
+        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Recipient / Date Received</th><th>Edited By</th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -766,7 +766,7 @@ function renderSummaryTable(){
         const isoDate=(it.detail||'');
         rows.push({type:'inv', name:it.supply_name||'', qty:it.quantity||0,
           isoDate,
-          recipient: isoToDisplay(isoDate)||'—',   // Date Received
+          recipient: isoToDisplay(isoDate)||'—',
           edited_by: it.changed_by||''});
       });
     }
@@ -776,8 +776,8 @@ function renderSummaryTable(){
         const isoDate=(it.date_given||'');
         rows.push({type:'giv', name:it.supply_name||'', qty:it.quantity||0,
           isoDate,
-          recipient: (it.detail||'—'),              // Who Received
-          edited_by: isoToDisplay(isoDate)||''});   // Date Given
+          recipient: (it.detail||'—'),
+          edited_by: it.changed_by||''});
       });
     }
     // Sort oldest → newest; undated rows go to end
@@ -822,8 +822,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—']}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),(it.detail||'—')+' · '+(isoToDisplay(it.date_given||'')||'')]}));
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—',it.changed_by||'']}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),(it.detail||'—'),it.changed_by||'']}));
   pdfRowsRaw.sort((a,b)=>{ if(!a.iso&&!b.iso)return 0; if(!a.iso)return 1; if(!b.iso)return -1; return a.iso.localeCompare(b.iso); });
   pdfRowsRaw.forEach(r=>rows.push(r.row));
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
@@ -844,7 +844,7 @@ function exportPDF(){
     doc.setTextColor(...c); doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text(String(v),x+7,bY+12);
     doc.setTextColor(120,120,130); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.text(l,x+7,bY+16.5);
   });
-  doc.autoTable({startY:bY+bH+6,margin:{left:margin,right:margin},head:[['#','Type','Supply Name','Qty','Date / Recipient']],body:rows.map((r,i)=>[i+1,...r]),styles:{font:'helvetica',fontSize:9,cellPadding:3},headStyles:{fillColor:[26,31,143],textColor:255,fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[244,244,248]},columnStyles:{0:{cellWidth:10,halign:'center'},1:{cellWidth:28},3:{cellWidth:16,halign:'center'},4:{cellWidth:45}}});
+  doc.autoTable({startY:bY+bH+6,margin:{left:margin,right:margin},head:[['#','Type','Supply Name','Qty','Recipient / Date Received','Edited By']],body:rows.map((r,i)=>[i+1,...r]),styles:{font:'helvetica',fontSize:9,cellPadding:3},headStyles:{fillColor:[26,31,143],textColor:255,fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[244,244,248]},columnStyles:{0:{cellWidth:10,halign:'center'},1:{cellWidth:28},3:{cellWidth:16,halign:'center'},4:{cellWidth:40},5:{cellWidth:30}}});
   const fy=doc.lastAutoTable.finalY+6;
   doc.setDrawColor(220,220,220); doc.line(margin,fy,pageW-margin,fy);
   doc.setTextColor(170,170,170); doc.setFontSize(7.5);
