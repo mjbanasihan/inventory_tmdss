@@ -253,6 +253,9 @@ tbody tr:hover .row-tip{display:block}
       <button class="filter-btn active" onclick="setSummaryFilter(this,'all')">All</button>
       <button class="filter-btn" onclick="setSummaryFilter(this,'inventory')">Inventory</button>
       <button class="filter-btn" onclick="setSummaryFilter(this,'given')">Given Out</button>
+      <select class="month-select" id="month-filter" onchange="renderSummaryTable()">
+        <option value="">All Months</option>
+      </select>
     </div>
     <div class="search-wrap" style="width:200px">
       <input type="text" placeholder="Search transactions" id="search-summary" oninput="renderSummaryTable()"/>
@@ -735,6 +738,7 @@ async function loadSummary(){
   try{
     summaryData=await api('/api/summary');
     updateStats();
+    populateMonthFilter();
     renderSummaryTable();
   } catch(e){
     console.error('loadSummary error:', e);
@@ -742,6 +746,26 @@ async function loadSummary(){
     const tbody=document.getElementById('tbody-summary');
     if(tbody) tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#c00">Could not load data — check console for details.</td></tr>`;
   }
+}
+
+function populateMonthFilter(){
+  if(!summaryData) return;
+  const sel=document.getElementById('month-filter');
+  const current=sel.value;
+  // Collect all unique year-month values from both tables
+  const months=new Set();
+  (summaryData.inventory.items||[]).forEach(it=>{ if(it.detail) months.add(it.detail.slice(0,7)); });
+  (summaryData.given_out.items||[]).forEach(it=>{ if(it.date_given) months.add(it.date_given.slice(0,7)); });
+  const sorted=[...months].sort();
+  sel.innerHTML='<option value="">All Months</option>';
+  sorted.forEach(m=>{
+    const [y,mo]=m.split('-');
+    const label=new Date(y,parseInt(mo)-1,1).toLocaleString('en-PH',{month:'long',year:'numeric'});
+    const opt=document.createElement('option');
+    opt.value=m; opt.textContent=label;
+    if(m===current) opt.selected=true;
+    sel.appendChild(opt);
+  });
 }
 function updateStats(){
   if(!summaryData) return;
@@ -774,6 +798,10 @@ function renderSummaryTable(){
           edited_by: it.changed_by||''});
       });
     }
+    // Apply month filter
+    const monthFilter=document.getElementById('month-filter').value;
+    if(monthFilter) rows=rows.filter(r=>r.isoDate&&r.isoDate.slice(0,7)===monthFilter);
+
     // Sort oldest → newest; undated rows go to end
     rows.sort((a,b)=>{
       if(!a.isoDate && !b.isoDate) return 0;
