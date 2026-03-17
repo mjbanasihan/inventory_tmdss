@@ -730,8 +730,16 @@ function setSummaryFilter(btn,f){
   renderSummaryTable();
 }
 async function loadSummary(){
-  try{ summaryData=await api('/api/summary'); updateStats(); renderSummaryTable(); }
-  catch(e){ toast('Failed to load summary','error'); }
+  try{
+    summaryData=await api('/api/summary');
+    updateStats();
+    renderSummaryTable();
+  } catch(e){
+    console.error('loadSummary error:', e);
+    toast('Failed to load summary: '+e.message,'error');
+    const tbody=document.getElementById('tbody-summary');
+    if(tbody) tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#c00">Could not load data — check console for details.</td></tr>`;
+  }
 }
 function updateStats(){
   if(!summaryData) return;
@@ -741,22 +749,54 @@ function updateStats(){
 }
 function renderSummaryTable(){
   if(!summaryData) return;
-  const search=(document.getElementById('search-summary').value||'').toLowerCase();
-  let rows=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>rows.push({type:'inv',name:it.supply_name,qty:it.quantity,isoDate:it.detail||'',detail:isoToDisplay(it.detail||'')||'—',changed_by:it.changed_by||''}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>rows.push({type:'giv',name:it.supply_name,qty:it.quantity,isoDate:it.date_given||'',detail:isoToDisplay(it.date_given||'')||'—',changed_by:it.detail||''}));
-  // Sort chronologically — rows without a date go to the end
-  rows.sort((a,b)=>{
-    if(!a.isoDate && !b.isoDate) return 0;
-    if(!a.isoDate) return 1;
-    if(!b.isoDate) return -1;
-    return a.isoDate.localeCompare(b.isoDate);
-  });
-  if(search) rows=rows.filter(r=>r.name.toLowerCase().includes(search)||r.detail.toLowerCase().includes(search)||r.changed_by.toLowerCase().includes(search));
-  const tbody=document.getElementById('tbody-summary');
-  document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
-  if(!rows.length){ tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#aaa">No transactions found.</td></tr>`; return; }
-  tbody.innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':'Given Out'}</span></td><td>${esc(r.name)}</td><td style="font-weight:600">${r.qty}</td><td>${esc(r.detail)}</td><td style="font-size:.75rem;color:var(--muted)">${r.changed_by?esc(r.changed_by):''}</td></tr>`).join('');
+  try {
+    const search=(document.getElementById('search-summary').value||'').toLowerCase();
+    let rows=[];
+    // Inventory rows — detail = date_received (ISO), changed_by = who added
+    if(summaryFilter!=='given'){
+      (summaryData.inventory.items||[]).forEach(it=>{
+        const isoDate = (it.detail||'');
+        rows.push({type:'inv', name:it.supply_name||'', qty:it.quantity||0,
+          isoDate, detail: isoToDisplay(isoDate)||'—', changed_by: it.changed_by||''});
+      });
+    }
+    // Given-out rows — detail = who_received, date_given = date given out
+    if(summaryFilter!=='inventory'){
+      (summaryData.given_out.items||[]).forEach(it=>{
+        const isoDate = (it.date_given||'');
+        rows.push({type:'giv', name:it.supply_name||'', qty:it.quantity||0,
+          isoDate, detail: isoToDisplay(isoDate)||'—', changed_by: it.detail||''});
+      });
+    }
+    // Sort oldest → newest; undated rows go to end
+    rows.sort((a,b)=>{
+      if(!a.isoDate && !b.isoDate) return 0;
+      if(!a.isoDate) return 1;
+      if(!b.isoDate) return -1;
+      return a.isoDate.localeCompare(b.isoDate);
+    });
+    if(search) rows=rows.filter(r=>
+      (r.name||'').toLowerCase().includes(search)||
+      (r.detail||'').toLowerCase().includes(search)||
+      (r.changed_by||'').toLowerCase().includes(search)
+    );
+    const tbody=document.getElementById('tbody-summary');
+    document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
+    if(!rows.length){ tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#aaa">No transactions found.</td></tr>`; return; }
+    tbody.innerHTML=rows.map((r,i)=>`
+      <tr>
+        <td>${i+1}</td>
+        <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':'Given Out'}</span></td>
+        <td>${esc(r.name)}</td>
+        <td style="font-weight:600">${r.qty}</td>
+        <td>${esc(r.detail)}</td>
+        <td style="font-size:.75rem;color:var(--muted)">${r.changed_by?esc(r.changed_by):''}</td>
+      </tr>`).join('');
+  } catch(err) {
+    console.error('renderSummaryTable error:', err);
+    const tbody=document.getElementById('tbody-summary');
+    if(tbody) tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#c00">Error rendering table: ${esc(err.message)}</td></tr>`;
+  }
 }
 
 // ── PRINT / PDF ────────────────────────────────────────────────────────────
