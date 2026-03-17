@@ -193,11 +193,15 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
                     else:
                         inv.quantity -= remaining
                         remaining = 0
+                db.flush()  # apply deletes before continuing
             else:
                 if inv_items:
                     inv_items[0].quantity += abs(qty_diff)
+                    db.flush()
                 else:
-                    db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
+                    new_inv = models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff))
+                    db.add(new_inv)
+                    db.flush()
 
         try:
             db.execute(text(
