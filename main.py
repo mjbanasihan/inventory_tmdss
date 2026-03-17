@@ -348,6 +348,17 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+# ─── DELETE LOG ENTRY ────────────────────────────────────────────────────────
+
+@app.delete("/api/log/{log_id}", status_code=204)
+def delete_log_entry(log_id: int, db: Session = Depends(get_db)):
+    row = db.execute(text("SELECT id FROM transaction_log WHERE id=:id"), {"id": log_id}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Log entry not found")
+    db.execute(text("DELETE FROM transaction_log WHERE id=:id"), {"id": log_id})
+    db.commit()
+
+
 # ─── SUMMARY — reads from transaction log ────────────────────────────────────
 
 @app.get("/api/summary")

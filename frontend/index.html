@@ -287,7 +287,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Recipient / Date Received</th><th>Edited By</th></tr></thead>
+        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Recipient / Date Received</th><th>Edited By</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -765,7 +765,7 @@ function renderSummaryTable(){
       (summaryData.inventory.items||[]).forEach(it=>{
         const isoDate=(it.detail||'');
         rows.push({type:'inv', name:it.supply_name||'', qty:it.quantity||0,
-          isoDate,
+          isoDate, logId: it.id,
           recipient: isoToDisplay(isoDate)||'—',
           edited_by: it.changed_by||''});
       });
@@ -775,7 +775,7 @@ function renderSummaryTable(){
       (summaryData.given_out.items||[]).forEach(it=>{
         const isoDate=(it.date_given||'');
         rows.push({type:'giv', name:it.supply_name||'', qty:it.quantity||0,
-          isoDate,
+          isoDate, logId: it.id,
           recipient: (it.detail||'—'),
           edited_by: it.changed_by||''});
       });
@@ -803,12 +803,23 @@ function renderSummaryTable(){
         <td style="font-weight:600">${r.qty}</td>
         <td>${esc(r.recipient)}</td>
         <td style="font-size:.75rem;color:var(--muted)">${esc(r.edited_by)}</td>
+        <td><button class="del-btn" style="opacity:.5" onclick="delLog(${r.logId})" title="Delete">✕</button></td>
       </tr>`).join('');
   } catch(err) {
     console.error('renderSummaryTable error:', err);
     const tbody=document.getElementById('tbody-summary');
     if(tbody) tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:#c00">Error: ${esc(err.message)}</td></tr>`;
   }
+}
+
+// ── DELETE LOG ENTRY ──────────────────────────────────────────────────────
+async function delLog(id){
+  if(!id) return;
+  try{
+    await api('/api/log/'+id,{method:'DELETE'});
+    toast('Entry removed','success');
+    loadSummary();
+  }catch(e){ toast('Delete failed: '+e.message,'error'); }
 }
 
 // ── PRINT / PDF ────────────────────────────────────────────────────────────
