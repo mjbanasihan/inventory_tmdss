@@ -201,12 +201,12 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
         # Insert given-out row
         if HAS_DATE_GIVEN:
             db.execute(text(
-                "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given) VALUES (:sn, :qty, :who, :dg)"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given})
+                "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given, changed_by) VALUES (:sn, :qty, :who, :dg, :cb)"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by})
         else:
             db.execute(text(
-                "INSERT INTO given_out_items (supply_name, quantity, who_received) VALUES (:sn, :qty, :who)"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received})
+                "INSERT INTO given_out_items (supply_name, quantity, who_received, changed_by) VALUES (:sn, :qty, :who, :cb)"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "cb": item.changed_by})
 
         # Log transaction
         if HAS_TXN_DATE:
@@ -276,12 +276,12 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
         # Update — use flag to decide whether to include date_given
         if HAS_DATE_GIVEN:
             db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg, changed_by=:cb WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by, "id": item_id})
         else:
             db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, changed_by=:cb WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "cb": item.changed_by, "id": item_id})
 
         db.commit()
         updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
