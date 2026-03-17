@@ -38,6 +38,19 @@ def run_migrations():
 
 run_migrations()
 
+# ── Detect which optional columns actually exist in live DB ──────────────────
+def col_exists(table, col):
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(f"SELECT {col} FROM {table} LIMIT 1"))
+        return True
+    except Exception:
+        return False
+
+HAS_DATE_GIVEN = col_exists("given_out_items", "date_given")
+HAS_TXN_DATE   = col_exists("transaction_log",  "date_given")
+print(f"Column detection — given_out_items.date_given: {HAS_DATE_GIVEN}, transaction_log.date_given: {HAS_TXN_DATE}", flush=True)
+
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -155,44 +168,35 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
         else:
             db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_qty, "id": inv["id"]})
 
-        # Insert given-out row — try with date_given, fallback without
-        try:
+        # Insert given-out row
+        if HAS_DATE_GIVEN:
             db.execute(text(
                 "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given) VALUES (:sn, :qty, :who, :dg)"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given})
-        except Exception:
-            db.rollback()
-            # Re-deduct since we rolled back
-            inv2 = db.execute(text("SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"), {"sn": item.supply_name}).mappings().first()
-            if inv2:
-                db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": inv2["quantity"] - item.quantity, "id": inv2["id"]})
-            else:
-                db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_qty, "id": inv["id"]})
+        else:
             db.execute(text(
                 "INSERT INTO given_out_items (supply_name, quantity, who_received) VALUES (:sn, :qty, :who)"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received})
 
-        # Log transaction — try with date_given, fallback without
-        try:
+        # Log transaction
+        if HAS_TXN_DATE:
             db.execute(text(
                 "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, created_at) VALUES (:t, :sn, :qty, :det, :dg, :ca)"
             ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
                 "det": item.who_received, "dg": item.date_given,
                 "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        except Exception:
+        else:
             try:
                 db.execute(text(
                     "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
                 ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
                     "det": item.who_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
             except Exception:
-                pass  # Log failure is non-fatal
+                pass  # log failure is non-fatal
 
         db.commit()
 
-        row = db.execute(text(
-            "SELECT * FROM given_out_items ORDER BY id DESC LIMIT 1"
-        )).mappings().first()
+        row = db.execute(text("SELECT * FROM given_out_items ORDER BY id DESC LIMIT 1")).mappings().first()
         return dict(row) if row else {"id": 0, "supply_name": item.supply_name, "quantity": item.quantity, "who_received": item.who_received, "date_given": item.date_given}
 
     except HTTPException:
@@ -239,12 +243,12 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
                     "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
                 ), {"sn": item.supply_name, "qty": abs(qty_diff)})
 
-        # Update — try with date_given, fallback without
-        try:
+        # Update — use flag to decide whether to include date_given
+        if HAS_DATE_GIVEN:
             db.execute(text(
                 "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
-        except Exception:
+        else:
             db.execute(text(
                 "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
