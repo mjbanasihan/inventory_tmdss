@@ -166,7 +166,7 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
     return db_item
 
 
-@app.put("/api/given-out/{item_id}", response_model=schemas.GivenOutItem)
+@app.put("/api/given-out/{item_id}")
 def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
     db_item = db.query(models.GivenOutItem).filter(models.GivenOutItem.id == item_id).first()
     if not db_item:
@@ -192,27 +192,29 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
                     inv.quantity -= remaining
                     remaining = 0
         else:
-            # Return units to inventory
             if inv_items:
                 inv_items[0].quantity += abs(qty_diff)
             else:
                 db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
 
-    # Explicitly set only the core fields — avoids crashing on missing optional columns
-    db_item.supply_name  = item.supply_name
-    db_item.quantity     = item.quantity
-    db_item.who_received = item.who_received
-    db_item.date_given   = item.date_given
-
-    # Set changed_by only if the column exists in the live DB
+    # Use raw SQL update — safe even if optional columns don't exist yet
     try:
-        db_item.changed_by = item.changed_by
+        db.execute(text(
+            "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
+        ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
     except Exception:
-        pass
+        # Fallback: update without date_given if column missing
+        db.execute(text(
+            "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
+        ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
 
     db.commit()
-    db.refresh(db_item)
-    return db_item
+
+    # Return the updated row
+    updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
+    if not updated:
+        raise HTTPException(status_code=404, detail="Item not found after update")
+    return dict(updated)
 
 
 @app.delete("/api/given-out/{item_id}", status_code=204)
