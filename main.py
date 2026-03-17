@@ -191,9 +191,9 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
         db.commit()
 
         row = db.execute(text(
-            "SELECT * FROM given_out_items WHERE supply_name=:sn ORDER BY id DESC LIMIT 1"
-        ), {"sn": item.supply_name}).mappings().first()
-        return dict(row)
+            "SELECT * FROM given_out_items ORDER BY id DESC LIMIT 1"
+        )).mappings().first()
+        return dict(row) if row else {"id": 0, "supply_name": item.supply_name, "quantity": item.quantity, "who_received": item.who_received, "date_given": item.date_given}
 
     except HTTPException:
         raise
