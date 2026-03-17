@@ -25,6 +25,8 @@ def run_migrations():
         "ALTER TABLE given_out_items ADD COLUMN changed_by VARCHAR",
         "ALTER TABLE inventory_items ADD COLUMN changed_by VARCHAR",
         "ALTER TABLE transaction_log ADD COLUMN date_given VARCHAR",
+        "ALTER TABLE transaction_log ADD COLUMN changed_by VARCHAR",
+        "ALTER TABLE transaction_log ADD COLUMN created_at VARCHAR",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -32,7 +34,7 @@ def run_migrations():
                 conn.execute(text(sql))
                 conn.commit()
             except Exception:
-                pass
+                pass  # Column already exists — safe to ignore
 
 run_migrations()
 
@@ -221,21 +223,35 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/summary")
 def get_summary(db: Session = Depends(get_db)):
-    logs = db.query(models.TransactionLog).order_by(models.TransactionLog.id).all()
+    # Use raw SQL so we never crash if a column is missing in the live DB
+    result = db.execute(text("SELECT * FROM transaction_log ORDER BY id")).mappings().all()
+    logs = [dict(r) for r in result]
 
-    inv_logs  = [l for l in logs if l.txn_type == "inventory"]
-    giv_logs  = [l for l in logs if l.txn_type == "given_out"]
+    inv_logs  = [l for l in logs if l.get("txn_type") == "inventory"]
+    giv_logs  = [l for l in logs if l.get("txn_type") == "given_out"]
+
+    def safe_log(l):
+        return {
+            "id":          l.get("id"),
+            "txn_type":    l.get("txn_type"),
+            "supply_name": l.get("supply_name"),
+            "quantity":    l.get("quantity", 0),
+            "detail":      l.get("detail"),
+            "date_given":  l.get("date_given"),
+            "changed_by":  l.get("changed_by"),
+            "created_at":  l.get("created_at"),
+        }
 
     return {
         "inventory": {
             "total_lines": len(inv_logs),
-            "total_units": sum(l.quantity for l in inv_logs),
-            "items": [schemas.TransactionLog.model_validate(l) for l in inv_logs]
+            "total_units": sum(l.get("quantity", 0) for l in inv_logs),
+            "items": [safe_log(l) for l in inv_logs]
         },
         "given_out": {
             "total_lines": len(giv_logs),
-            "total_units": sum(l.quantity for l in giv_logs),
-            "items": [schemas.TransactionLog.model_validate(l) for l in giv_logs]
+            "total_units": sum(l.get("quantity", 0) for l in giv_logs),
+            "items": [safe_log(l) for l in giv_logs]
         }
     }
 
