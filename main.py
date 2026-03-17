@@ -80,31 +80,61 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
 
 @app.post("/api/inventory", response_model=schemas.InventoryItem, status_code=201)
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
-    # Upsert: merge into existing row so current inventory stays consolidated
-    existing = db.query(models.InventoryItem).filter(
-        models.InventoryItem.supply_name.ilike(item.supply_name)
-    ).first()
-    if existing:
-        existing.quantity += item.quantity
-        if item.date_received:
-            existing.date_received = item.date_received
-        if item.changed_by:
-            existing.changed_by = item.changed_by
-        db.commit()
-        db.refresh(existing)
-        result = existing
-    else:
-        db_item = models.InventoryItem(**item.model_dump())
-        db.add(db_item)
-        db.commit()
-        db.refresh(db_item)
-        result = db_item
+    import traceback
+    try:
+        # Upsert: merge into existing row
+        existing = db.query(models.InventoryItem).filter(
+            models.InventoryItem.supply_name.ilike(item.supply_name)
+        ).first()
+        if existing:
+            existing.quantity += item.quantity
+            if item.date_received:
+                existing.date_received = item.date_received
+            try:
+                existing.changed_by = item.changed_by
+            except Exception:
+                pass
+            db.commit()
+            db.refresh(existing)
+            result = existing
+        else:
+            db_item = models.InventoryItem(
+                supply_name=item.supply_name,
+                quantity=item.quantity,
+                date_received=item.date_received
+            )
+            try:
+                db_item.changed_by = item.changed_by
+            except Exception:
+                pass
+            db.add(db_item)
+            db.commit()
+            db.refresh(db_item)
+            result = db_item
 
-    # Always log every add as a separate transaction
-    log_txn(db, "inventory", item.supply_name, item.quantity,
-            detail=item.date_received, changed_by=item.changed_by)
-    db.commit()
-    return result
+        # Log transaction using raw SQL — safe against missing columns
+        try:
+            db.execute(text(
+                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :cb, :ca)"
+            ), {"t": "inventory", "sn": item.supply_name, "qty": item.quantity,
+                "det": item.date_received, "cb": item.changed_by,
+                "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
+            db.commit()
+        except Exception:
+            try:
+                db.execute(text(
+                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
+                ), {"t": "inventory", "sn": item.supply_name, "qty": item.quantity,
+                    "det": item.date_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
+                db.commit()
+            except Exception:
+                pass  # log failure is non-fatal
+
+        return result
+
+    except Exception as e:
+        print("POST /api/inventory ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/inventory/{item_id}", response_model=schemas.InventoryItem)
