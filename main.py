@@ -68,18 +68,28 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def on_startup():
     refresh_flags()
 
-def log_txn(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None):
-    """Append a record to the transaction log."""
-    entry = models.TransactionLog(
-        txn_type=txn_type,
-        supply_name=supply_name,
-        quantity=quantity,
-        detail=detail,
-        date_given=date_given,
-        changed_by=changed_by,
-        created_at=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
-    )
-    db.add(entry)
+def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None):
+    """Write to transaction_log using only columns that exist, never crashes."""
+    ca = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    # Always try full insert first, fall back to minimal
+    for sql, params in [
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,date_given,changed_by,created_at) VALUES (:t,:sn,:qty,:det,:dg,:cb,:ca)",
+            {"t":txn_type,"sn":supply_name,"qty":quantity,"det":detail,"dg":date_given,"cb":changed_by,"ca":ca}
+        ),
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,created_at) VALUES (:t,:sn,:qty,:det,:ca)",
+            {"t":txn_type,"sn":supply_name,"qty":quantity,"det":detail,"ca":ca}
+        ),
+    ]:
+        try:
+            db.execute(text(sql), params)
+            db.commit()
+            return
+        except Exception:
+            try: db.rollback()
+            except: pass
+    # If all fail, silently ignore — log failure is non-fatal
 
 # ─── INVENTORY ────────────────────────────────────────────────────────────────
 
@@ -125,23 +135,9 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
             db.refresh(db_item)
             result = db_item
 
-        # Log transaction using raw SQL — safe against missing columns
-        try:
-            if HAS_CB_TXN:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :cb, :ca)"
-                ), {"t": "inventory", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.date_received, "cb": item.changed_by,
-                    "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            else:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
-                ), {"t": "inventory", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.date_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            db.commit()
-        except Exception:
-            pass  # log failure is non-fatal
-
+        # Log transaction
+        write_log(db, "inventory", item.supply_name, item.quantity,
+                  detail=item.date_received, changed_by=item.changed_by)
         return result
 
     except Exception as e:
@@ -165,22 +161,8 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
     db.refresh(db_item)
 
     # Log the edit
-    try:
-        if HAS_CB_TXN:
-            db.execute(text(
-                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :cb, :ca)"
-            ), {"t": "inventory", "sn": item.supply_name, "qty": item.quantity,
-                "det": item.date_received, "cb": item.changed_by,
-                "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        else:
-            db.execute(text(
-                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
-            ), {"t": "inventory", "sn": item.supply_name, "qty": item.quantity,
-                "det": item.date_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        db.commit()
-    except Exception:
-        pass  # log failure is non-fatal
-
+    write_log(db, "inventory", item.supply_name, item.quantity,
+              detail=item.date_received, changed_by=item.changed_by)
     return db_item
 
 
@@ -194,20 +176,7 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
     date_received = db_item.date_received
     db.delete(db_item)
     db.commit()
-    # Log the deletion
-    try:
-        if HAS_CB_TXN:
-            db.execute(text(
-                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :cb, :ca)"
-            ), {"t": "inventory_deleted", "sn": supply_name, "qty": quantity,
-                "det": date_received, "cb": None, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        else:
-            db.execute(text(
-                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
-            ), {"t": "inventory_deleted", "sn": supply_name, "qty": quantity,
-                "det": date_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        db.commit()
-    except Exception:
+    write_log(db, "inventory_deleted", supply_name, quantity, detail=date_received)
         pass
 
 
@@ -449,12 +418,40 @@ def delete_log_entry(log_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/summary")
 def get_summary(db: Session = Depends(get_db)):
-    # Use raw SQL so we never crash if a column is missing in the live DB
-    result = db.execute(text("SELECT * FROM transaction_log ORDER BY id")).mappings().all()
-    logs = [dict(r) for r in result]
+    # Join transaction_log with given_out_items to backfill missing date_given
+    try:
+        result = db.execute(text("""
+            SELECT tl.*,
+                   COALESCE(tl.date_given, gi.date_given) AS date_given_resolved
+            FROM transaction_log tl
+            LEFT JOIN given_out_items gi
+              ON LOWER(tl.supply_name) = LOWER(gi.supply_name)
+              AND tl.txn_type IN ('given_out', 'given_out_deleted')
+            ORDER BY tl.id
+        """)).mappings().all()
+    except Exception:
+        # Fallback if join fails
+        result = db.execute(text("SELECT * FROM transaction_log ORDER BY id")).mappings().all()
+
+    logs = []
+    for r in result:
+        d = dict(r)
+        # Use resolved date_given if available
+        if d.get("date_given_resolved"):
+            d["date_given"] = d["date_given_resolved"]
+        logs.append(d)
 
     inv_logs  = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_deleted")]
     giv_logs  = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_deleted")]
+
+    # Deduplicate given_out logs by id (join may produce duplicates)
+    seen = set()
+    deduped_giv = []
+    for l in giv_logs:
+        if l["id"] not in seen:
+            seen.add(l["id"])
+            deduped_giv.append(l)
+    giv_logs = deduped_giv
 
     def safe_log(l):
         return {
