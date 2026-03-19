@@ -403,65 +403,61 @@ def delete_log_entry(log_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/summary")
 def get_summary(db: Session = Depends(get_db)):
-    # Join transaction_log with given_out_items to backfill missing date_given
+    import traceback
     try:
-        result = db.execute(text("""
-            SELECT tl.*,
-                   COALESCE(tl.date_given, gi.date_given) AS date_given_resolved
-            FROM transaction_log tl
-            LEFT JOIN given_out_items gi
-              ON LOWER(tl.supply_name) = LOWER(gi.supply_name)
-              AND tl.txn_type IN ('given_out', 'given_out_deleted')
-            ORDER BY tl.id
-        """)).mappings().all()
-    except Exception:
-        # Fallback if join fails
+        # Fetch all log entries
         result = db.execute(text("SELECT * FROM transaction_log ORDER BY id")).mappings().all()
+        logs = [dict(r) for r in result]
 
-    logs = []
-    for r in result:
-        d = dict(r)
-        # Use resolved date_given if available
-        if d.get("date_given_resolved"):
-            d["date_given"] = d["date_given_resolved"]
-        logs.append(d)
+        # Fetch given_out_items to backfill missing date_given in log
+        try:
+            gi_rows = db.execute(text("SELECT supply_name, date_given FROM given_out_items")).mappings().all()
+            # Build a map: lower(supply_name) -> date_given (first found)
+            gi_map = {}
+            for gi in gi_rows:
+                key = (gi["supply_name"] or "").lower()
+                if key not in gi_map and gi.get("date_given"):
+                    gi_map[key] = gi["date_given"]
+        except Exception:
+            gi_map = {}
 
-    inv_logs  = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_deleted")]
-    giv_logs  = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_deleted")]
+        # Backfill date_given from given_out_items where missing in log
+        for l in logs:
+            if l.get("txn_type") in ("given_out", "given_out_deleted") and not l.get("date_given"):
+                key = (l.get("supply_name") or "").lower()
+                if key in gi_map:
+                    l["date_given"] = gi_map[key]
 
-    # Deduplicate given_out logs by id (join may produce duplicates)
-    seen = set()
-    deduped_giv = []
-    for l in giv_logs:
-        if l["id"] not in seen:
-            seen.add(l["id"])
-            deduped_giv.append(l)
-    giv_logs = deduped_giv
+        inv_logs = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_deleted")]
+        giv_logs = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_deleted")]
 
-    def safe_log(l):
+        def safe_log(l):
+            return {
+                "id":          l.get("id"),
+                "txn_type":    l.get("txn_type"),
+                "supply_name": l.get("supply_name"),
+                "quantity":    l.get("quantity", 0),
+                "detail":      l.get("detail"),
+                "date_given":  l.get("date_given"),
+                "changed_by":  l.get("changed_by"),
+                "created_at":  l.get("created_at"),
+            }
+
         return {
-            "id":          l.get("id"),
-            "txn_type":    l.get("txn_type"),
-            "supply_name": l.get("supply_name"),
-            "quantity":    l.get("quantity", 0),
-            "detail":      l.get("detail"),
-            "date_given":  l.get("date_given"),
-            "changed_by":  l.get("changed_by"),
-            "created_at":  l.get("created_at"),
+            "inventory": {
+                "total_lines": len(inv_logs),
+                "total_units": sum(l.get("quantity", 0) for l in inv_logs),
+                "items": [safe_log(l) for l in inv_logs]
+            },
+            "given_out": {
+                "total_lines": len(giv_logs),
+                "total_units": sum(l.get("quantity", 0) for l in giv_logs),
+                "items": [safe_log(l) for l in giv_logs]
+            }
         }
-
-    return {
-        "inventory": {
-            "total_lines": len(inv_logs),
-            "total_units": sum(l.get("quantity", 0) for l in inv_logs),
-            "items": [safe_log(l) for l in inv_logs]
-        },
-        "given_out": {
-            "total_lines": len(giv_logs),
-            "total_units": sum(l.get("quantity", 0) for l in giv_logs),
-            "items": [safe_log(l) for l in giv_logs]
-        }
-    }
+    except Exception as e:
+        print("GET /api/summary ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ─── SERVE FRONTEND ──────────────────────────────────────────────────────────
