@@ -158,10 +158,11 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
 
 @media print{
   body{background:#fff}
-  header,#main-page,.overlay,#toast{display:none!important}
+  header,#main-page,.overlay,#toast,.summary-topbar,.export-btns{display:none!important}
   #summary-page{display:block!important;padding:0}
   .table-wrap{max-height:none!important;overflow:visible!important}
   .del-btn,.row-edit-btn{display:none}
+  .col-edited-by{display:none!important}
   @page{margin:18mm}
 }
 .supply-cell{position:relative}
@@ -286,7 +287,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th>Edited By</th><th></th></tr></thead>
+        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th class="col-edited-by">Edited By</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -830,7 +831,7 @@ function renderSummaryTable(){
         <td style="font-weight:600">${r.qty}</td>
         <td style="font-size:.82rem">${esc(r.date)}</td>
         <td>${esc(r.recipient)}</td>
-        <td style="font-size:.75rem;color:var(--muted)">${esc(r.edited_by)}</td>
+        <td class="col-edited-by" style="font-size:.75rem;color:var(--muted)">${esc(r.edited_by)}</td>
         <td><button class="del-btn" style="opacity:.5" onclick="delLog(${r.logId})" title="Delete">✕</button></td>
       </tr>`).join('');
   } catch(err) {
@@ -861,8 +862,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—','—',it.changed_by||'']}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—'),it.changed_by||'']}));
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}));
   pdfRowsRaw.sort((a,b)=>{ if(!a.iso&&!b.iso)return 0; if(!a.iso)return 1; if(!b.iso)return -1; return a.iso.localeCompare(b.iso); });
   pdfRowsRaw.forEach(r=>rows.push(r.row));
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
@@ -883,7 +884,7 @@ function exportPDF(){
     doc.setTextColor(...c); doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text(String(v),x+7,bY+12);
     doc.setTextColor(120,120,130); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.text(l,x+7,bY+16.5);
   });
-  doc.autoTable({startY:bY+bH+6,margin:{left:margin,right:margin},head:[['#','Type','Supply Name','Qty','Date','Recipient','Edited By']],body:rows.map((r,i)=>[i+1,...r]),styles:{font:'helvetica',fontSize:9,cellPadding:3},headStyles:{fillColor:[26,31,143],textColor:255,fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[244,244,248]},columnStyles:{0:{cellWidth:10,halign:'center'},1:{cellWidth:26},3:{cellWidth:14,halign:'center'},4:{cellWidth:28},5:{cellWidth:35},6:{cellWidth:28}}});
+  doc.autoTable({startY:bY+bH+6,margin:{left:margin,right:margin},head:[['#','Type','Supply Name','Qty','Date Received / Date Given Out','Recipient']],body:rows.map((r,i)=>[i+1,...r]),styles:{font:'helvetica',fontSize:9,cellPadding:3},headStyles:{fillColor:[26,31,143],textColor:255,fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[244,244,248]},columnStyles:{0:{cellWidth:10,halign:'center'},1:{cellWidth:26},3:{cellWidth:14,halign:'center'},4:{cellWidth:38},5:{cellWidth:45}}});
   const fy=doc.lastAutoTable.finalY+6;
   doc.setDrawColor(220,220,220); doc.line(margin,fy,pageW-margin,fy);
   doc.setTextColor(170,170,170); doc.setFontSize(7.5);
