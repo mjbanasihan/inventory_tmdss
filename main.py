@@ -172,12 +172,33 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
         pass  # log failure is non-fatal
 
     return db_item
+
+
+@app.delete("/api/inventory/{item_id}", status_code=204)
 def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
     db_item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id).first()
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
+    supply_name  = db_item.supply_name
+    quantity     = db_item.quantity
+    date_received = db_item.date_received
     db.delete(db_item)
     db.commit()
+    # Log the deletion
+    try:
+        if HAS_CB_TXN:
+            db.execute(text(
+                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :cb, :ca)"
+            ), {"t": "inventory_deleted", "sn": supply_name, "qty": quantity,
+                "det": date_received, "cb": None, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
+        else:
+            db.execute(text(
+                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
+            ), {"t": "inventory_deleted", "sn": supply_name, "qty": quantity,
+                "det": date_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
+        db.commit()
+    except Exception:
+        pass
 
 
 # ─── GIVEN OUT ────────────────────────────────────────────────────────────────
@@ -385,6 +406,22 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
 
     db.execute(text("DELETE FROM given_out_items WHERE id=:id"), {"id": item_id})
     db.commit()
+    # Log the deletion
+    try:
+        if HAS_TXN_DATE and HAS_CB_TXN:
+            db.execute(text(
+                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :dg, :cb, :ca)"
+            ), {"t": "given_out_deleted", "sn": row["supply_name"], "qty": row["quantity"],
+                "det": row["who_received"], "dg": row.get("date_given"), "cb": None,
+                "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
+        else:
+            db.execute(text(
+                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
+            ), {"t": "given_out_deleted", "sn": row["supply_name"], "qty": row["quantity"],
+                "det": row["who_received"], "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
+        db.commit()
+    except Exception:
+        pass
 
 
 # ─── DELETE LOG ENTRY ────────────────────────────────────────────────────────
@@ -406,8 +443,8 @@ def get_summary(db: Session = Depends(get_db)):
     result = db.execute(text("SELECT * FROM transaction_log ORDER BY id")).mappings().all()
     logs = [dict(r) for r in result]
 
-    inv_logs  = [l for l in logs if l.get("txn_type") == "inventory"]
-    giv_logs  = [l for l in logs if l.get("txn_type") == "given_out"]
+    inv_logs  = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_deleted")]
+    giv_logs  = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_deleted")]
 
     def safe_log(l):
         return {
