@@ -47,16 +47,26 @@ def col_exists(table, col):
     except Exception:
         return False
 
-HAS_DATE_GIVEN  = col_exists("given_out_items", "date_given")
-HAS_CB_GIVEN    = col_exists("given_out_items", "changed_by")
-HAS_TXN_DATE    = col_exists("transaction_log",  "date_given")
-HAS_CB_TXN      = col_exists("transaction_log",  "changed_by")
-HAS_CB_INV      = col_exists("inventory_items",  "changed_by")
-print(f"Columns — given_out.date_given:{HAS_DATE_GIVEN} given_out.changed_by:{HAS_CB_GIVEN} txn.date_given:{HAS_TXN_DATE} txn.changed_by:{HAS_CB_TXN} inv.changed_by:{HAS_CB_INV}", flush=True)
+# Re-detect after migrations have run
+def refresh_flags():
+    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV
+    HAS_DATE_GIVEN  = col_exists("given_out_items", "date_given")
+    HAS_CB_GIVEN    = col_exists("given_out_items", "changed_by")
+    HAS_TXN_DATE    = col_exists("transaction_log",  "date_given")
+    HAS_CB_TXN      = col_exists("transaction_log",  "changed_by")
+    HAS_CB_INV      = col_exists("inventory_items",  "changed_by")
+    print(f"Columns — given_out.date_given:{HAS_DATE_GIVEN} given_out.changed_by:{HAS_CB_GIVEN} txn.date_given:{HAS_TXN_DATE} txn.changed_by:{HAS_CB_TXN} inv.changed_by:{HAS_CB_INV}", flush=True)
+
+HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = False
+refresh_flags()
 
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.on_event("startup")
+def on_startup():
+    refresh_flags()
 
 def log_txn(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None):
     """Append a record to the transaction log."""
