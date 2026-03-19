@@ -177,7 +177,6 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
     db.delete(db_item)
     db.commit()
     write_log(db, "inventory_deleted", supply_name, quantity, detail=date_received)
-        pass
 
 
 # ─── GIVEN OUT ────────────────────────────────────────────────────────────────
@@ -385,22 +384,8 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
 
     db.execute(text("DELETE FROM given_out_items WHERE id=:id"), {"id": item_id})
     db.commit()
-    # Log the deletion
-    try:
-        if HAS_TXN_DATE and HAS_CB_TXN:
-            db.execute(text(
-                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :dg, :cb, :ca)"
-            ), {"t": "given_out_deleted", "sn": row["supply_name"], "qty": row["quantity"],
-                "det": row["who_received"], "dg": row.get("date_given"), "cb": None,
-                "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        else:
-            db.execute(text(
-                "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
-            ), {"t": "given_out_deleted", "sn": row["supply_name"], "qty": row["quantity"],
-                "det": row["who_received"], "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        db.commit()
-    except Exception:
-        pass
+    write_log(db, "given_out_deleted", row["supply_name"], row["quantity"],
+              detail=row["who_received"], date_given=row.get("date_given"))
 
 
 # ─── DELETE LOG ENTRY ────────────────────────────────────────────────────────
