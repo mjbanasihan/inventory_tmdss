@@ -652,7 +652,8 @@ document.addEventListener('keydown',function(e){
 
 // ── EDIT GIVEN-OUT MODAL ───────────────────────────────────────────────────
 function openEditModal(id){
-  const it=givenItems.find(x=>x.id===id); if(!it) return;
+  try{
+  const it=givenItems.find(x=>x.id===id); if(!it){ toast('Item not found','error'); return; }
   egOrigQty=it.quantity; egOrigSupply=it.supply_name;
   document.getElementById('eg-id').value=id;
   document.getElementById('eg-supply').value=it.supply_name;
@@ -678,6 +679,7 @@ function openEditModal(id){
 
   document.getElementById('overlay-edit').style.display='flex';
   setTimeout(()=>document.getElementById('eg-qty').focus(),50);
+  }catch(err){ console.error('openEditModal error:',err); toast('Error opening edit: '+err.message,'error'); }
 }
 
 function closeEditModal(){
