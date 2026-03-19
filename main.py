@@ -71,11 +71,14 @@ def on_startup():
 def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None):
     """Write to transaction_log using only columns that exist, never crashes."""
     ca = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
-    # Always try full insert first, fall back to minimal
     for sql, params in [
         (
             "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,date_given,changed_by,created_at) VALUES (:t,:sn,:qty,:det,:dg,:cb,:ca)",
             {"t":txn_type,"sn":supply_name,"qty":quantity,"det":detail,"dg":date_given,"cb":changed_by,"ca":ca}
+        ),
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,changed_by,created_at) VALUES (:t,:sn,:qty,:det,:cb,:ca)",
+            {"t":txn_type,"sn":supply_name,"qty":quantity,"det":detail,"cb":changed_by,"ca":ca}
         ),
         (
             "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,created_at) VALUES (:t,:sn,:qty,:det,:ca)",
@@ -89,7 +92,6 @@ def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None,
         except Exception:
             try: db.rollback()
             except: pass
-    # If all fail, silently ignore — log failure is non-fatal
 
 # ─── INVENTORY ────────────────────────────────────────────────────────────────
 
@@ -233,32 +235,8 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
             ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received})
 
         # Log transaction
-        try:
-            if HAS_TXN_DATE and HAS_CB_TXN:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :dg, :cb, :ca)"
-                ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.who_received, "dg": item.date_given, "cb": item.changed_by,
-                    "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            elif HAS_TXN_DATE:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, created_at) VALUES (:t, :sn, :qty, :det, :dg, :ca)"
-                ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.who_received, "dg": item.date_given,
-                    "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            elif HAS_CB_TXN:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :cb, :ca)"
-                ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.who_received, "cb": item.changed_by,
-                    "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            else:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
-                ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.who_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-        except Exception:
-            pass  # log failure is non-fatal
+        write_log(db, "given_out", item.supply_name, item.quantity,
+                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by)
 
         db.commit()
 
@@ -330,27 +308,8 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
         db.commit()
 
         # Log the edit
-        try:
-            if HAS_TXN_DATE and HAS_CB_TXN:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, changed_by, created_at) VALUES (:t, :sn, :qty, :det, :dg, :cb, :ca)"
-                ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.who_received, "dg": item.date_given, "cb": item.changed_by,
-                    "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            elif HAS_TXN_DATE:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, date_given, created_at) VALUES (:t, :sn, :qty, :det, :dg, :ca)"
-                ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.who_received, "dg": item.date_given,
-                    "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            else:
-                db.execute(text(
-                    "INSERT INTO transaction_log (txn_type, supply_name, quantity, detail, created_at) VALUES (:t, :sn, :qty, :det, :ca)"
-                ), {"t": "given_out", "sn": item.supply_name, "qty": item.quantity,
-                    "det": item.who_received, "ca": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")})
-            db.commit()
-        except Exception:
-            pass  # log failure is non-fatal
+        write_log(db, "given_out", item.supply_name, item.quantity,
+                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by)
 
         updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
         return dict(updated)
