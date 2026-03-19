@@ -786,7 +786,7 @@ function renderSummaryTable(){
       (summaryData.inventory.items||[]).forEach(it=>{
         const isoDate=(it.detail||'');
         rows.push({type:'inv', name:it.supply_name||'', qty:it.quantity||0,
-          isoDate, logId: it.id,
+          isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
           recipient: '—',
           edited_by: it.changed_by||''});
@@ -797,22 +797,22 @@ function renderSummaryTable(){
       (summaryData.given_out.items||[]).forEach(it=>{
         const isoDate=(it.date_given||'');
         rows.push({type:'giv', name:it.supply_name||'', qty:it.quantity||0,
-          isoDate, logId: it.id,
+          isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
           recipient: (it.detail||'—'),
           edited_by: it.changed_by||''});
       });
     }
-    // Apply month filter
+    // Apply month filter (based on supply date)
     const monthFilter=document.getElementById('month-filter').value;
     if(monthFilter) rows=rows.filter(r=>r.isoDate&&r.isoDate.slice(0,7)===monthFilter);
 
-    // Sort oldest → newest; undated rows go to end
+    // Sort by transaction creation time (FIFO — first transaction first)
     rows.sort((a,b)=>{
-      if(!a.isoDate && !b.isoDate) return 0;
-      if(!a.isoDate) return 1;
-      if(!b.isoDate) return -1;
-      return a.isoDate.localeCompare(b.isoDate);
+      if(!a.createdAt && !b.createdAt) return a.logId - b.logId;
+      if(!a.createdAt) return 1;
+      if(!b.createdAt) return -1;
+      return a.createdAt.localeCompare(b.createdAt);
     });
     if(search) rows=rows.filter(r=>
       (r.name||'').toLowerCase().includes(search)||
@@ -862,9 +862,11 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}));
-  pdfRowsRaw.sort((a,b)=>{ if(!a.iso&&!b.iso)return 0; if(!a.iso)return 1; if(!b.iso)return -1; return a.iso.localeCompare(b.iso); });
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}));
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}));
+  const mf=document.getElementById('month-filter').value;
+  if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
+  pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
   pdfRowsRaw.forEach(r=>rows.push(r.row));
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
   const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
