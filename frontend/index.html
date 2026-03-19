@@ -859,7 +859,7 @@ function exportPDF(){
   if(!summaryData){ toast('No data to export','error'); return; }
   if(typeof window.jspdf==='undefined'){ toast('PDF library not ready, try again','error'); return; }
   const {jsPDF}=window.jspdf;
-  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
@@ -872,6 +872,8 @@ function exportPDF(){
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
   const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
   const pageW=doc.internal.pageSize.getWidth(), margin=14;
+
+  // Header bar
   doc.setFillColor(26,31,143); doc.rect(0,0,pageW,22,'F');
   doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(13);
   doc.text('TSD-TMDSS INVENTORY SUMMARY',margin,14);
@@ -879,6 +881,8 @@ function exportPDF(){
   doc.text('Generated: '+now,pageW-margin,14,{align:'right'});
   doc.setTextColor(100,100,120); doc.setFontSize(8);
   doc.text(rows.length+' record'+(rows.length!==1?'s':''),margin,29);
+
+  // Stat boxes
   const bW=(pageW-margin*2-8)/3, bY=33, bH=18;
   [[summaryData.inventory.total_lines+summaryData.given_out.total_lines,'TOTAL TRANSACTIONS',[26,31,143]],[summaryData.inventory.total_units,'INVENTORY UNITS',[26,143,74]],[summaryData.given_out.total_units,'SUPPLY GIVEN OUT',[192,57,43]]].forEach(([v,l,c],i)=>{
     const x=margin+i*(bW+4);
@@ -887,7 +891,25 @@ function exportPDF(){
     doc.setTextColor(...c); doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text(String(v),x+7,bY+12);
     doc.setTextColor(120,120,130); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.text(l,x+7,bY+16.5);
   });
-  doc.autoTable({startY:bY+bH+6,margin:{left:margin,right:margin},head:[['#','Type','Supply Name','Qty','Date Received / Date Given Out','Recipient']],body:rows.map((r,i)=>[i+1,...r]),styles:{font:'helvetica',fontSize:9,cellPadding:3},headStyles:{fillColor:[26,31,143],textColor:255,fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[244,244,248]},columnStyles:{0:{cellWidth:10,halign:'center'},1:{cellWidth:26},3:{cellWidth:14,halign:'center'},4:{cellWidth:38},5:{cellWidth:45}}});
+
+  // Table — landscape A4 usable: ~269mm - 28mm margins = 241mm
+  doc.autoTable({
+    startY: bY+bH+6,
+    margin: {left:margin, right:margin},
+    head: [['#','Type','Supply Name','Qty','Date Received / Date Given Out','Recipient']],
+    body: rows.map((r,i)=>[i+1,...r]),
+    styles: {font:'helvetica', fontSize:9, cellPadding:3.5, overflow:'linebreak'},
+    headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:8, cellPadding:4},
+    alternateRowStyles: {fillColor:[244,244,248]},
+    columnStyles: {
+      0: {cellWidth:10, halign:'center'},
+      1: {cellWidth:32},
+      2: {cellWidth:'auto'},
+      3: {cellWidth:14, halign:'center'},
+      4: {cellWidth:52},
+      5: {cellWidth:58},
+    }
+  });
   const fy=doc.lastAutoTable.finalY+6;
   doc.setDrawColor(220,220,220); doc.line(margin,fy,pageW-margin,fy);
   doc.setTextColor(170,170,170); doc.setFontSize(7.5);
