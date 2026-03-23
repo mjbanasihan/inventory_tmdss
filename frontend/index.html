@@ -896,22 +896,21 @@ function exportPDF(){
   });
 
   // Table — portrait A4 usable: 210mm - 28mm margins = 182mm
-  // #=10  Type=24  SupplyName=auto  Qty=12  Date=40  Recipient=40  → fixed=126, auto=56
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
-    head: [['#','Type','Supply Name','Qty','Date Received / Date Given Out','Recipient']],
+    head: [['#','Type','Supply Name','Qty','Date','Recipient']],
     body: rows.map((r,i)=>[i+1,...r]),
-    styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
-    headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
+    styles: {font:'helvetica', fontSize:8.5, cellPadding:3, overflow:'linebreak'},
+    headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:8, cellPadding:3},
     alternateRowStyles: {fillColor:[244,244,248]},
     columnStyles: {
       0: {cellWidth:10, halign:'center'},
-      1: {cellWidth:24},
+      1: {cellWidth:28},
       2: {cellWidth:'auto'},
-      3: {cellWidth:12, halign:'center'},
-      4: {cellWidth:40},
-      5: {cellWidth:40},
+      3: {cellWidth:14, halign:'center'},
+      4: {cellWidth:36},
+      5: {cellWidth:42},
     }
   });
   const fy=doc.lastAutoTable.finalY+6;
