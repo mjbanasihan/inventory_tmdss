@@ -370,22 +370,34 @@ def get_summary(db: Session = Depends(get_db)):
 
         # Fetch given_out_items to backfill missing date_given in log
         try:
-            gi_rows = db.execute(text("SELECT supply_name, date_given FROM given_out_items")).mappings().all()
-            # Build a map: lower(supply_name) -> date_given (first found)
-            gi_map = {}
+            gi_rows = db.execute(text("SELECT supply_name, who_received, date_given FROM given_out_items")).mappings().all()
+            # Build two maps for matching:
+            # 1. (supply_name, who_received) -> date_given  (precise match)
+            # 2. supply_name -> date_given                  (fallback)
+            gi_map_precise = {}
+            gi_map_supply  = {}
             for gi in gi_rows:
-                key = (gi["supply_name"] or "").lower()
-                if key not in gi_map and gi.get("date_given"):
-                    gi_map[key] = gi["date_given"]
+                sn  = (gi["supply_name"] or "").lower()
+                who = (gi.get("who_received") or "").lower()
+                dg  = gi.get("date_given")
+                if dg:
+                    key_precise = (sn, who)
+                    if key_precise not in gi_map_precise:
+                        gi_map_precise[key_precise] = dg
+                    if sn not in gi_map_supply:
+                        gi_map_supply[sn] = dg
         except Exception:
-            gi_map = {}
+            gi_map_precise = {}
+            gi_map_supply  = {}
 
         # Backfill date_given from given_out_items where missing in log
         for l in logs:
             if l.get("txn_type") in ("given_out", "given_out_deleted") and not l.get("date_given"):
-                key = (l.get("supply_name") or "").lower()
-                if key in gi_map:
-                    l["date_given"] = gi_map[key]
+                sn  = (l.get("supply_name") or "").lower()
+                who = (l.get("detail") or "").lower()  # detail = who_received in log
+                dg  = gi_map_precise.get((sn, who)) or gi_map_supply.get(sn)
+                if dg:
+                    l["date_given"] = dg
 
         inv_logs = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_deleted")]
         giv_logs = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_deleted")]
@@ -430,6 +442,15 @@ def get_summary(db: Session = Depends(get_db)):
     except Exception as e:
         print("GET /api/summary ERROR:", traceback.format_exc(), flush=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── DEBUG — remove after confirming fix ─────────────────────────────────────
+
+@app.get("/api/debug")
+def debug_data(db: Session = Depends(get_db)):
+    logs = db.execute(text("SELECT id, txn_type, supply_name, detail, date_given, changed_by FROM transaction_log ORDER BY id DESC LIMIT 20")).mappings().all()
+    gi   = db.execute(text("SELECT id, supply_name, who_received, date_given FROM given_out_items ORDER BY id DESC LIMIT 20")).mappings().all()
+    return {"transaction_log": [dict(r) for r in logs], "given_out_items": [dict(r) for r in gi]}
 
 
 # ─── SERVE FRONTEND ──────────────────────────────────────────────────────────
