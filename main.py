@@ -402,15 +402,28 @@ def get_summary(db: Session = Depends(get_db)):
                 "created_at":  l.get("created_at"),
             }
 
+        # Get actual current stock from live tables (not log totals)
+        try:
+            inv_stock = db.execute(text("SELECT COALESCE(SUM(quantity),0) AS total FROM inventory_items")).mappings().first()
+            current_inv_units = int(inv_stock["total"] or 0)
+        except Exception:
+            current_inv_units = sum(l.get("quantity", 0) for l in inv_logs)
+
+        try:
+            giv_stock = db.execute(text("SELECT COALESCE(SUM(quantity),0) AS total FROM given_out_items")).mappings().first()
+            current_giv_units = int(giv_stock["total"] or 0)
+        except Exception:
+            current_giv_units = sum(l.get("quantity", 0) for l in giv_logs)
+
         return {
             "inventory": {
                 "total_lines": len(inv_logs),
-                "total_units": sum(l.get("quantity", 0) for l in inv_logs),
+                "total_units": current_inv_units,
                 "items": [safe_log(l) for l in inv_logs]
             },
             "given_out": {
                 "total_lines": len(giv_logs),
-                "total_units": sum(l.get("quantity", 0) for l in giv_logs),
+                "total_units": current_giv_units,
                 "items": [safe_log(l) for l in giv_logs]
             }
         }
