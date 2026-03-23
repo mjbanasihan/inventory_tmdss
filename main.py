@@ -448,9 +448,27 @@ def get_summary(db: Session = Depends(get_db)):
 
 @app.get("/api/debug")
 def debug_data(db: Session = Depends(get_db)):
-    logs = db.execute(text("SELECT id, txn_type, supply_name, detail, date_given, changed_by FROM transaction_log ORDER BY id DESC LIMIT 20")).mappings().all()
-    gi   = db.execute(text("SELECT id, supply_name, who_received, date_given FROM given_out_items ORDER BY id DESC LIMIT 20")).mappings().all()
-    return {"transaction_log": [dict(r) for r in logs], "given_out_items": [dict(r) for r in gi]}
+    result = {}
+    # Check what columns exist in transaction_log
+    try:
+        logs = db.execute(text("SELECT * FROM transaction_log ORDER BY id DESC LIMIT 10")).mappings().all()
+        result["transaction_log"] = [dict(r) for r in logs]
+    except Exception as e:
+        result["transaction_log_error"] = str(e)
+    # Check what columns exist in given_out_items
+    try:
+        gi = db.execute(text("SELECT * FROM given_out_items ORDER BY id DESC LIMIT 10")).mappings().all()
+        result["given_out_items"] = [dict(r) for r in gi]
+    except Exception as e:
+        result["given_out_items_error"] = str(e)
+    # Report column flags
+    result["flags"] = {
+        "HAS_DATE_GIVEN": HAS_DATE_GIVEN,
+        "HAS_CB_GIVEN":   HAS_CB_GIVEN,
+        "HAS_TXN_DATE":   HAS_TXN_DATE,
+        "HAS_CB_TXN":     HAS_CB_TXN,
+    }
+    return result
 
 
 # ─── SERVE FRONTEND ──────────────────────────────────────────────────────────
