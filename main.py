@@ -69,7 +69,7 @@ def on_startup():
     refresh_flags()
 
 def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None):
-    """Write to transaction_log using only columns that exist, never crashes."""
+    """Append to transaction_log. Uses savepoints so failures never roll back the caller's data."""
     ca = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
     for sql, params in [
         (
@@ -86,11 +86,12 @@ def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None,
         ),
     ]:
         try:
+            db.execute(text("SAVEPOINT log_sp"))
             db.execute(text(sql), params)
-            db.commit()
-            return
+            db.execute(text("RELEASE SAVEPOINT log_sp"))
+            return  # success
         except Exception:
-            try: db.rollback()
+            try: db.execute(text("ROLLBACK TO SAVEPOINT log_sp"))
             except: pass
 
 # ─── INVENTORY ────────────────────────────────────────────────────────────────
