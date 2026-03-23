@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -141,6 +141,7 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
         # Log transaction
         write_log(db, "inventory", item.supply_name, item.quantity,
                   detail=item.date_received, changed_by=item.changed_by)
+        db.commit()
         return result
 
     except Exception as e:
@@ -166,6 +167,7 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
     # Log the edit
     write_log(db, "inventory", item.supply_name, item.quantity,
               detail=item.date_received, changed_by=item.changed_by)
+    db.commit()
     return db_item
 
 
@@ -180,6 +182,7 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
     db.delete(db_item)
     db.commit()
     write_log(db, "inventory_deleted", supply_name, quantity, detail=date_received)
+    db.commit()
 
 
 # ─── GIVEN OUT ────────────────────────────────────────────────────────────────
@@ -311,6 +314,7 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
         # Log the edit
         write_log(db, "given_out", item.supply_name, item.quantity,
                   detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by)
+        db.commit()
 
         updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
         return dict(updated)
@@ -346,6 +350,7 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
     db.commit()
     write_log(db, "given_out_deleted", row["supply_name"], row["quantity"],
               detail=row["who_received"], date_given=row.get("date_given"))
+    db.commit()
 
 
 # ─── DELETE LOG ENTRY ────────────────────────────────────────────────────────
