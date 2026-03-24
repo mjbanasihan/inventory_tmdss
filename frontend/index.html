@@ -209,7 +209,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>No.</th><th>Supply Name</th><th>Quantity</th><th>Date Received</th><th></th></tr></thead>
+          <thead><tr><th>No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Date Received</th><th></th></tr></thead>
           <tbody id="tbody-current"></tbody>
         </table>
 
@@ -303,7 +303,13 @@ tbody tr:hover .row-tip{display:block}
     <!-- Inventory: supply name text input -->
     <div id="f-name-wrap">
       <label>Supply Name</label>
-      <input type="text" id="f-name" placeholder="e.g. Ballpen" autocomplete="off"/>
+      <input type="text" id="f-name" placeholder="e.g. Folder" autocomplete="off"/>
+    </div>
+
+    <!-- Inventory: variety (optional) -->
+    <div id="f-variety-wrap">
+      <label>Variety <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — e.g. Long, Short, Blue)</span></label>
+      <input type="text" id="f-variety" placeholder="e.g. Long / Short / Blue" autocomplete="off"/>
     </div>
 
     <!-- Given-out: supply dropdown -->
@@ -468,7 +474,7 @@ function renderTable(type){
       if(type==='current'){
         const invTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
         tr.style.position='relative';
-        tr.innerHTML=`<td class="supply-cell">${invTip}${i+1}</td><td>${esc(it.supply_name)}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
+        tr.innerHTML=`<td class="supply-cell">${invTip}${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
       } else {
         const givTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
         tr.style.position='relative';
@@ -476,7 +482,7 @@ function renderTable(type){
       }
     } else {
       tr.className='empty-row';
-      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?4:5);
+      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?5:5);
     }
     tbody.appendChild(tr);
   }
@@ -552,6 +558,7 @@ function openModal(type){
 
   // Reset fields
   document.getElementById('f-name').value='';
+  document.getElementById('f-variety').value='';
   document.getElementById('f-qty').value='';
   document.getElementById('f-who').value='';
   document.getElementById('f-date-received-display').value='';
@@ -617,26 +624,25 @@ async function saveItem(){
   try{
     if(activeTable==='current'){
       const name=document.getElementById('f-name').value.trim();
-      if(!name){ toast('Enter a supply name','error'); return; }
-      if(qty<=0){ toast('Quantity must be > 0','error'); return; }
+      if(!name){ toast('Enter a supply name','error'); btn.disabled=false; btn.textContent='Save'; return; }
+      if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
+      const variety=document.getElementById('f-variety').value.trim()||null;
       const dateReceived=document.getElementById('f-date-received').value||null;
       const changedBy=document.getElementById('f-changed-by').value.trim();
-      if(!changedBy){ toast('Please enter your name','error'); return; }
-      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,quantity:qty,date_received:dateReceived,changed_by:changedBy})});
+      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:changedBy||null})});
       toast(name+' added to inventory!','success');
       closeModal(); loadTable('current');
     } else {
       const sel=document.getElementById('f-select');
       const supplyName=sel.value;
-      if(!supplyName){ toast('Select a supply','error'); return; }
-      if(qty<=0){ toast('Quantity must be > 0','error'); return; }
+      if(!supplyName){ toast('Select a supply','error'); btn.disabled=false; btn.textContent='Save'; return; }
+      if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
-      if(qty>avail){ toast('Only '+avail+' available','error'); return; }
+      if(qty>avail){ toast('Only '+avail+' available','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const who=document.getElementById('f-who').value.trim();
       const dateGiven=document.getElementById('f-date-given').value||null;
       const changedByG=document.getElementById('f-changed-by').value.trim();
-      if(!changedByG){ toast('Please enter your name','error'); return; }
-      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG})});
+      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
       closeModal(); loadTable('current'); loadTable('given');
     }

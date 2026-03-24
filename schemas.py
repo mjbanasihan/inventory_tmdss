@@ -5,6 +5,7 @@ from typing import Optional
 class InventoryItemCreate(BaseModel):
     supply_name:   str
     quantity:      int
+    variety:       Optional[str] = None
     date_received: Optional[str] = None
     changed_by:    Optional[str] = None
 

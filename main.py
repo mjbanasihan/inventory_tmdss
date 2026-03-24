@@ -24,6 +24,7 @@ def run_migrations():
         "ALTER TABLE given_out_items ADD COLUMN date_given VARCHAR",
         "ALTER TABLE given_out_items ADD COLUMN changed_by VARCHAR",
         "ALTER TABLE inventory_items ADD COLUMN changed_by VARCHAR",
+        "ALTER TABLE inventory_items ADD COLUMN variety VARCHAR",
         "ALTER TABLE transaction_log ADD COLUMN date_given VARCHAR",
         "ALTER TABLE transaction_log ADD COLUMN changed_by VARCHAR",
         "ALTER TABLE transaction_log ADD COLUMN created_at VARCHAR",
@@ -116,6 +117,8 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
             existing.quantity += item.quantity
             if item.date_received:
                 existing.date_received = item.date_received
+            if item.variety is not None:
+                existing.variety = item.variety
             try:
                 existing.changed_by = item.changed_by
             except Exception:
@@ -126,6 +129,7 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
         else:
             db_item = models.InventoryItem(
                 supply_name=item.supply_name,
+                variety=item.variety,
                 quantity=item.quantity,
                 date_received=item.date_received
             )
