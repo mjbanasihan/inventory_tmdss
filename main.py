@@ -97,57 +97,61 @@ def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None,
 
 # ─── INVENTORY ────────────────────────────────────────────────────────────────
 
-@app.get("/api/inventory", response_model=List[schemas.InventoryItem])
+@app.get("/api/inventory")
 def get_inventory(search: str = "", db: Session = Depends(get_db)):
-    q = db.query(models.InventoryItem)
-    if search:
-        q = q.filter(models.InventoryItem.supply_name.ilike(f"%{search}%"))
-    return q.order_by(models.InventoryItem.id).all()
+    try:
+        if search:
+            rows = db.execute(text(
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name) LIKE LOWER(:s) ORDER BY id"
+            ), {"s": f"%{search}%"}).mappings().all()
+        else:
+            rows = db.execute(text(
+                "SELECT * FROM inventory_items ORDER BY id"
+            )).mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        import traceback
+        print("GET /api/inventory ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/inventory", response_model=schemas.InventoryItem, status_code=201)
+@app.post("/api/inventory", status_code=201)
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
     import traceback
     try:
-        # Upsert: merge into existing row
-        existing = db.query(models.InventoryItem).filter(
-            models.InventoryItem.supply_name.ilike(item.supply_name)
-        ).first()
-        if existing:
-            existing.quantity += item.quantity
-            if item.date_received:
-                existing.date_received = item.date_received
-            if item.variety is not None:
-                existing.variety = item.variety
-            try:
-                existing.changed_by = item.changed_by
-            except Exception:
-                pass
-            db.commit()
-            db.refresh(existing)
-            result = existing
-        else:
-            db_item = models.InventoryItem(
-                supply_name=item.supply_name,
-                variety=item.variety,
-                quantity=item.quantity,
-                date_received=item.date_received
-            )
-            try:
-                db_item.changed_by = item.changed_by
-            except Exception:
-                pass
-            db.add(db_item)
-            db.commit()
-            db.refresh(db_item)
-            result = db_item
+        existing = db.execute(text(
+            "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
+        ), {"sn": item.supply_name}).mappings().first()
 
-        # Log transaction
+        if existing:
+            new_qty = existing["quantity"] + item.quantity
+            dr = item.date_received or existing.get("date_received")
+            try:
+                db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb WHERE id=:id"),
+                    {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "id": existing["id"]})
+            except Exception:
+                db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr WHERE id=:id"),
+                    {"qty": new_qty, "dr": dr, "id": existing["id"]})
+            db.commit()
+            result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": existing["id"]}).mappings().first()
+        else:
+            try:
+                db.execute(text("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by) VALUES (:sn,:v,:qty,:dr,:cb)"),
+                    {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by})
+            except Exception:
+                db.execute(text("INSERT INTO inventory_items (supply_name,quantity,date_received) VALUES (:sn,:qty,:dr)"),
+                    {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received})
+            db.commit()
+            result = db.execute(text("SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) ORDER BY id DESC LIMIT 1"),
+                {"sn": item.supply_name}).mappings().first()
+
         write_log(db, "inventory", item.supply_name, item.quantity,
                   detail=item.date_received, changed_by=item.changed_by)
         db.commit()
-        return result
+        return dict(result) if result else {"id": 0, "supply_name": item.supply_name, "quantity": item.quantity}
 
+    except HTTPException:
+        raise
     except Exception as e:
         print("POST /api/inventory ERROR:", traceback.format_exc(), flush=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -155,37 +159,31 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
 
 @app.put("/api/inventory/{item_id}", response_model=schemas.InventoryItem)
 def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
-    db_item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id).first()
-    if not db_item:
+    row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="Item not found")
-    db_item.supply_name   = item.supply_name
-    db_item.quantity      = item.quantity
-    db_item.date_received = item.date_received
     try:
-        db_item.changed_by = item.changed_by
+        db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
+            {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
     except Exception:
-        pass
+        db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
+            {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
     db.commit()
-    db.refresh(db_item)
-
-    # Log the edit
     write_log(db, "inventory", item.supply_name, item.quantity,
               detail=item.date_received, changed_by=item.changed_by)
     db.commit()
-    return db_item
+    result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+    return dict(result)
 
 
 @app.delete("/api/inventory/{item_id}", status_code=204)
 def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
-    db_item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id).first()
-    if not db_item:
+    row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="Item not found")
-    supply_name  = db_item.supply_name
-    quantity     = db_item.quantity
-    date_received = db_item.date_received
-    db.delete(db_item)
+    db.execute(text("DELETE FROM inventory_items WHERE id=:id"), {"id": item_id})
     db.commit()
-    write_log(db, "inventory_deleted", supply_name, quantity, detail=date_received)
+    write_log(db, "inventory_deleted", row["supply_name"], row["quantity"], detail=row.get("date_received"))
     db.commit()
 
 
