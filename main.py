@@ -127,18 +127,24 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
             new_qty = existing["quantity"] + item.quantity
             dr = item.date_received or existing.get("date_received")
             try:
+                db.execute(text("SAVEPOINT inv_upsert"))
                 db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb WHERE id=:id"),
                     {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "id": existing["id"]})
+                db.execute(text("RELEASE SAVEPOINT inv_upsert"))
             except Exception:
+                db.execute(text("ROLLBACK TO SAVEPOINT inv_upsert"))
                 db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr WHERE id=:id"),
                     {"qty": new_qty, "dr": dr, "id": existing["id"]})
             db.commit()
             result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": existing["id"]}).mappings().first()
         else:
             try:
+                db.execute(text("SAVEPOINT inv_insert"))
                 db.execute(text("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by) VALUES (:sn,:v,:qty,:dr,:cb)"),
                     {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by})
+                db.execute(text("RELEASE SAVEPOINT inv_insert"))
             except Exception:
+                db.execute(text("ROLLBACK TO SAVEPOINT inv_insert"))
                 db.execute(text("INSERT INTO inventory_items (supply_name,quantity,date_received) VALUES (:sn,:qty,:dr)"),
                     {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received})
             db.commit()
@@ -157,23 +163,34 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/api/inventory/{item_id}", response_model=schemas.InventoryItem)
+@app.put("/api/inventory/{item_id}")
 def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
-    row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Item not found")
+    import traceback
     try:
-        db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
-            {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
-    except Exception:
-        db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
-            {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
-    db.commit()
-    write_log(db, "inventory", item.supply_name, item.quantity,
-              detail=item.date_received, changed_by=item.changed_by)
-    db.commit()
-    result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
-    return dict(result)
+        row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Item not found")
+        # Try full update with variety, fallback without
+        try:
+            db.execute(text("SAVEPOINT inv_put"))
+            db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
+                {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
+            db.execute(text("RELEASE SAVEPOINT inv_put"))
+        except Exception:
+            db.execute(text("ROLLBACK TO SAVEPOINT inv_put"))
+            db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
+                {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
+        db.commit()
+        write_log(db, "inventory", item.supply_name, item.quantity,
+                  detail=item.date_received, changed_by=item.changed_by)
+        db.commit()
+        result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+        return dict(result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("PUT /api/inventory ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/inventory/{item_id}", status_code=204)
