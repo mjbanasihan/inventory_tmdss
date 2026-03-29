@@ -236,7 +236,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>No.</th><th>Supply Name</th><th>Quantity</th><th>Who Received</th><th>Date Given</th><th></th></tr></thead>
+          <thead><tr><th>No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Who Received</th><th>Date Given</th><th></th></tr></thead>
           <tbody id="tbody-given"></tbody>
         </table>
 
@@ -288,7 +288,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th class="col-edited-by">Edited By</th><th></th></tr></thead>
+        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th class="col-edited-by">Edited By</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -507,11 +507,12 @@ function renderTable(type){
       } else {
         const givTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
         tr.style.position='relative';
-        tr.innerHTML=`<td class="supply-cell">${givTip}${i+1}</td><td>${esc(it.supply_name)}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
+        const givVariety = (currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||'';
+        tr.innerHTML=`<td class="supply-cell">${givTip}${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(givVariety)}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
       }
     } else {
       tr.className='empty-row';
-      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?5:5);
+      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?5:6);
     }
     tbody.appendChild(tr);
   }
@@ -876,7 +877,9 @@ function renderSummaryTable(){
       (summaryData.inventory.items||[]).forEach(it=>{
         const isoDate=(it.detail||'');
         const isDel = it.txn_type==='inventory_deleted';
+        const invItem = currentItems.find(x=>x.supply_name===it.supply_name);
         rows.push({type: isDel?'inv_del':'inv', name:it.supply_name||'', qty:it.quantity||0,
+          variety: (it.variety||invItem?.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
           recipient: '—',
@@ -888,7 +891,9 @@ function renderSummaryTable(){
       (summaryData.given_out.items||[]).forEach(it=>{
         const isoDate=(it.date_given||'');
         const isDel = it.txn_type==='given_out_deleted';
+        const invItem = currentItems.find(x=>x.supply_name===it.supply_name);
         rows.push({type: isDel?'giv_del':'giv', name:it.supply_name||'', qty:it.quantity||0,
+          variety: (invItem?.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
           recipient: (it.detail||'—'),
@@ -908,18 +913,20 @@ function renderSummaryTable(){
     });
     if(search) rows=rows.filter(r=>
       (r.name||'').toLowerCase().includes(search)||
+      (r.variety||'').toLowerCase().includes(search)||
       (r.recipient||'').toLowerCase().includes(search)||
       (r.date||'').toLowerCase().includes(search)||
       (r.edited_by||'').toLowerCase().includes(search)
     );
     const tbody=document.getElementById('tbody-summary');
     document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
-    if(!rows.length){ tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:32px;color:#aaa">No transactions found.</td></tr>`; return; }
+    if(!rows.length){ tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;padding:32px;color:#aaa">No transactions found.</td></tr>`; return; }
     tbody.innerHTML=rows.map((r,i)=>`
       <tr>
         <td>${i+1}</td>
         <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':r.type==='giv'?'Given Out':r.type==='inv_del'?'Deleted':'Deleted'}</span></td>
         <td>${esc(r.name)}</td>
+        <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
         <td style="font-size:.82rem">${esc(r.date)}</td>
         <td>${esc(r.recipient)}</td>
@@ -954,8 +961,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:['Received',it.supply_name,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}));
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:['Given Out',it.supply_name,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}));
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:['Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}); });
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:['Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
   pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
@@ -987,18 +994,19 @@ function exportPDF(){
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
-    head: [['#','Type','Supply Name','Qty','Date','Recipient']],
+    head: [['#','Type','Supply Name','Variety','Qty','Date','Recipient']],
     body: rows.map((r,i)=>[i+1,...r]),
-    styles: {font:'helvetica', fontSize:8.5, cellPadding:3, overflow:'linebreak'},
-    headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:8, cellPadding:3},
+    styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
+    headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
     alternateRowStyles: {fillColor:[244,244,248]},
     columnStyles: {
       0: {cellWidth:10, halign:'center'},
-      1: {cellWidth:28},
+      1: {cellWidth:22},
       2: {cellWidth:'auto'},
-      3: {cellWidth:14, halign:'center'},
-      4: {cellWidth:36},
-      5: {cellWidth:42},
+      3: {cellWidth:22},
+      4: {cellWidth:11, halign:'center'},
+      5: {cellWidth:32},
+      6: {cellWidth:34},
     }
   });
   const fy=doc.lastAutoTable.finalY+6;
