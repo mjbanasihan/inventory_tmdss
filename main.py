@@ -50,15 +50,16 @@ def col_exists(table, col):
 
 # Re-detect after migrations have run
 def refresh_flags():
-    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV
+    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY
     HAS_DATE_GIVEN  = col_exists("given_out_items", "date_given")
     HAS_CB_GIVEN    = col_exists("given_out_items", "changed_by")
     HAS_TXN_DATE    = col_exists("transaction_log",  "date_given")
     HAS_CB_TXN      = col_exists("transaction_log",  "changed_by")
     HAS_CB_INV      = col_exists("inventory_items",  "changed_by")
-    print(f"Columns — given_out.date_given:{HAS_DATE_GIVEN} given_out.changed_by:{HAS_CB_GIVEN} txn.date_given:{HAS_TXN_DATE} txn.changed_by:{HAS_CB_TXN} inv.changed_by:{HAS_CB_INV}", flush=True)
+    HAS_VARIETY     = col_exists("inventory_items",  "variety")
+    print(f"Columns — variety:{HAS_VARIETY} given_out.date_given:{HAS_DATE_GIVEN} given_out.changed_by:{HAS_CB_GIVEN} txn.date_given:{HAS_TXN_DATE} txn.changed_by:{HAS_CB_TXN}", flush=True)
 
-HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = False
+HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = HAS_VARIETY = False
 refresh_flags()
 
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
@@ -126,25 +127,19 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
         if existing:
             new_qty = existing["quantity"] + item.quantity
             dr = item.date_received or existing.get("date_received")
-            try:
-                db.execute(text("SAVEPOINT inv_upsert"))
+            if HAS_VARIETY:
                 db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb WHERE id=:id"),
                     {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "id": existing["id"]})
-                db.execute(text("RELEASE SAVEPOINT inv_upsert"))
-            except Exception:
-                db.execute(text("ROLLBACK TO SAVEPOINT inv_upsert"))
+            else:
                 db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr WHERE id=:id"),
                     {"qty": new_qty, "dr": dr, "id": existing["id"]})
             db.commit()
             result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": existing["id"]}).mappings().first()
         else:
-            try:
-                db.execute(text("SAVEPOINT inv_insert"))
+            if HAS_VARIETY:
                 db.execute(text("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by) VALUES (:sn,:v,:qty,:dr,:cb)"),
                     {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by})
-                db.execute(text("RELEASE SAVEPOINT inv_insert"))
-            except Exception:
-                db.execute(text("ROLLBACK TO SAVEPOINT inv_insert"))
+            else:
                 db.execute(text("INSERT INTO inventory_items (supply_name,quantity,date_received) VALUES (:sn,:qty,:dr)"),
                     {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received})
             db.commit()
@@ -170,14 +165,10 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
         row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
         if not row:
             raise HTTPException(status_code=404, detail="Item not found")
-        # Try full update with variety, fallback without
-        try:
-            db.execute(text("SAVEPOINT inv_put"))
+        if HAS_VARIETY:
             db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
                 {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
-            db.execute(text("RELEASE SAVEPOINT inv_put"))
-        except Exception:
-            db.execute(text("ROLLBACK TO SAVEPOINT inv_put"))
+        else:
             db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
                 {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
         db.commit()
