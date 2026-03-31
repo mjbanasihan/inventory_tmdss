@@ -38,6 +38,13 @@ def run_migrations():
                 conn.commit()
             except Exception:
                 pass  # Column already exists — safe to ignore
+        # Verify variety column is readable — force a read to confirm
+        try:
+            conn.execute(text("SELECT variety FROM inventory_items LIMIT 1"))
+            conn.commit()
+            print("variety column confirmed on inventory_items", flush=True)
+        except Exception as e:
+            print(f"variety column MISSING on inventory_items: {e}", flush=True)
 
 run_migrations()
 

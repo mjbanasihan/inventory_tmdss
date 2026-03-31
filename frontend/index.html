@@ -485,7 +485,13 @@ async function loadTable(type, silent=false){
   }
   try{
     const items=await api(ep+(s?'?search='+encodeURIComponent(s):''));
-    if(type==='current') currentItems=items; else givenItems=items;
+    if(type==='current'){
+      currentItems=items;
+      console.log('inventory sample:', items.slice(0,2).map(x=>({id:x.id,name:x.supply_name,variety:x.variety})));
+    } else {
+      givenItems=items;
+      console.log('given-out sample:', items.slice(0,2).map(x=>({id:x.id,name:x.supply_name,variety:x.variety})));
+    }
     renderTable(type);
   }catch(e){ if(!silent) toast('Failed to load data','error'); }
   finally{ if(rb) rb.classList.remove('spinning'); }
