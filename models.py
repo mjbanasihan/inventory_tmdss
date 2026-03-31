@@ -18,6 +18,7 @@ class GivenOutItem(Base):
 
     id           = Column(Integer, primary_key=True, index=True)
     supply_name  = Column(String, nullable=False)
+    variety      = Column(String, nullable=True)
     quantity     = Column(Integer, nullable=False, default=0)
     who_received = Column(String, nullable=True)
     date_given   = Column(String, nullable=True)

@@ -18,6 +18,7 @@ class InventoryItem(InventoryItemCreate):
 class GivenOutItemCreate(BaseModel):
     supply_name:  str
     quantity:     int
+    variety:      Optional[str] = None
     who_received: Optional[str] = None
     date_given:   Optional[str] = None
     changed_by:   Optional[str] = None
