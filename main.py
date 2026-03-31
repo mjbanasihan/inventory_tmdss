@@ -142,19 +142,25 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
         if existing:
             new_qty = existing["quantity"] + item.quantity
             dr = item.date_received or existing.get("date_received")
-            if HAS_VARIETY:
+            try:
+                db.execute(text("SAVEPOINT v1"))
                 db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb WHERE id=:id"),
                     {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "id": existing["id"]})
-            else:
+                db.execute(text("RELEASE SAVEPOINT v1"))
+            except Exception:
+                db.execute(text("ROLLBACK TO SAVEPOINT v1"))
                 db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr WHERE id=:id"),
                     {"qty": new_qty, "dr": dr, "id": existing["id"]})
             db.commit()
             result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": existing["id"]}).mappings().first()
         else:
-            if HAS_VARIETY:
+            try:
+                db.execute(text("SAVEPOINT v2"))
                 db.execute(text("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by) VALUES (:sn,:v,:qty,:dr,:cb)"),
                     {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by})
-            else:
+                db.execute(text("RELEASE SAVEPOINT v2"))
+            except Exception:
+                db.execute(text("ROLLBACK TO SAVEPOINT v2"))
                 db.execute(text("INSERT INTO inventory_items (supply_name,quantity,date_received) VALUES (:sn,:qty,:dr)"),
                     {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received})
             db.commit()
@@ -180,10 +186,13 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
         row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
         if not row:
             raise HTTPException(status_code=404, detail="Item not found")
-        if HAS_VARIETY:
+        try:
+            db.execute(text("SAVEPOINT v3"))
             db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
                 {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
-        else:
+            db.execute(text("RELEASE SAVEPOINT v3"))
+        except Exception:
+            db.execute(text("ROLLBACK TO SAVEPOINT v3"))
             db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
                 {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
         db.commit()
@@ -249,22 +258,23 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
             db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_qty, "id": inv["id"]})
 
         # Insert given-out row — include variety if column exists
-        if HAS_VARIETY_GIVEN:
-            db.execute(text(
-                "INSERT INTO given_out_items (supply_name, variety, quantity, who_received, date_given, changed_by) VALUES (:sn, :v, :qty, :who, :dg, :cb)"
-            ), {"sn": item.supply_name, "v": variety, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by})
-        elif HAS_DATE_GIVEN and HAS_CB_GIVEN:
-            db.execute(text(
-                "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given, changed_by) VALUES (:sn, :qty, :who, :dg, :cb)"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by})
-        elif HAS_DATE_GIVEN:
-            db.execute(text(
-                "INSERT INTO given_out_items (supply_name, quantity, who_received, date_given) VALUES (:sn, :qty, :who, :dg)"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given})
-        else:
-            db.execute(text(
-                "INSERT INTO given_out_items (supply_name, quantity, who_received) VALUES (:sn, :qty, :who)"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received})
+        # Try full insert with all optional columns, fallback gracefully
+        for giv_sql, giv_p in [
+            ("INSERT INTO given_out_items (supply_name,variety,quantity,who_received,date_given,changed_by) VALUES (:sn,:v,:qty,:who,:dg,:cb)",
+             {"sn":item.supply_name,"v":variety,"qty":item.quantity,"who":item.who_received,"dg":item.date_given,"cb":item.changed_by}),
+            ("INSERT INTO given_out_items (supply_name,quantity,who_received,date_given,changed_by) VALUES (:sn,:qty,:who,:dg,:cb)",
+             {"sn":item.supply_name,"qty":item.quantity,"who":item.who_received,"dg":item.date_given,"cb":item.changed_by}),
+            ("INSERT INTO given_out_items (supply_name,quantity,who_received) VALUES (:sn,:qty,:who)",
+             {"sn":item.supply_name,"qty":item.quantity,"who":item.who_received}),
+        ]:
+            try:
+                db.execute(text("SAVEPOINT giv_ins"))
+                db.execute(text(giv_sql), giv_p)
+                db.execute(text("RELEASE SAVEPOINT giv_ins"))
+                break
+            except Exception:
+                try: db.execute(text("ROLLBACK TO SAVEPOINT giv_ins"))
+                except: pass
 
         # Log transaction — include variety if column exists
         write_log(db, "given_out", item.supply_name, item.quantity,
