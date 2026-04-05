@@ -666,7 +666,7 @@ async function saveItem(){
       const changedBy=document.getElementById('f-changed-by').value.trim();
       await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:changedBy||null})});
       toast(name+' added to inventory!','success');
-      closeModal(); loadTable('current');
+      closeModal(); await loadTable('current');
     } else {
       const sel=document.getElementById('f-select');
       const supplyName=sel.value;
@@ -679,7 +679,7 @@ async function saveItem(){
       const changedByG=document.getElementById('f-changed-by').value.trim();
       await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
-      closeModal(); loadTable('current'); loadTable('given');
+      closeModal(); await loadTable('current'); await loadTable('given');
     }
   }catch(e){ toast('Save failed: '+e.message,'error'); }
   finally{ btn.disabled=false; btn.textContent='Save'; }
@@ -737,16 +737,16 @@ async function saveInvEdit(){
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
     const updated=await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null})});
-    // Immediately patch currentItems so UI reflects without waiting for reload
-    const idx=currentItems.findIndex(x=>x.id===id);
-    if(idx>=0){ currentItems[idx]={...currentItems[idx],supply_name:name,variety,quantity:qty,date_received:date}; }
-    else if(updated){ currentItems.push(updated); }
     console.log('saveInvEdit — variety sent:',variety,'response variety:',updated?.variety);
+    // Patch local cache with server response (use server value for variety, fall back to what we sent)
+    const idx=currentItems.findIndex(x=>x.id===id);
+    const fresh={...(idx>=0?currentItems[idx]:{}), ...(updated||{}), supply_name:name, variety:(updated&&'variety' in updated?updated.variety:variety), quantity:qty, date_received:date};
+    if(idx>=0) currentItems[idx]=fresh; else currentItems.push(fresh);
     toast('Item updated!','success');
     closeInvEdit();
     renderTable('current');
-    // Also do a full reload to confirm server state
-    loadTable('current');
+    // Full reload to confirm server state (won't re-render until data arrives)
+    await loadTable('current');
   }catch(e){ toast('Save failed: '+e.message,'error'); }
   finally{ btn.disabled=false; btn.textContent='Save Changes'; }
 }
