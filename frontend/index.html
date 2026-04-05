@@ -736,9 +736,17 @@ async function saveInvEdit(){
   if(qty<=0){ toast('Quantity must be > 0','error'); return; }
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
-    await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null})});
+    const updated=await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null})});
+    // Immediately patch currentItems so UI reflects without waiting for reload
+    const idx=currentItems.findIndex(x=>x.id===id);
+    if(idx>=0){ currentItems[idx]={...currentItems[idx],supply_name:name,variety,quantity:qty,date_received:date}; }
+    else if(updated){ currentItems.push(updated); }
+    console.log('saveInvEdit — variety sent:',variety,'response variety:',updated?.variety);
     toast('Item updated!','success');
-    closeInvEdit(); loadTable('current');
+    closeInvEdit();
+    renderTable('current');
+    // Also do a full reload to confirm server state
+    loadTable('current');
   }catch(e){ toast('Save failed: '+e.message,'error'); }
   finally{ btn.disabled=false; btn.textContent='Save Changes'; }
 }

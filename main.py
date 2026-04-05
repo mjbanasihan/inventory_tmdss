@@ -183,6 +183,7 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
 def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
     import traceback
     try:
+        print(f"PUT /api/inventory/{item_id} — variety={item.variety!r}", flush=True)
         row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
         if not row:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -191,7 +192,9 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
             db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
                 {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
             db.execute(text("RELEASE SAVEPOINT v3"))
-        except Exception:
+            print(f"PUT inventory — full UPDATE succeeded, variety={item.variety!r}", flush=True)
+        except Exception as ve:
+            print(f"PUT inventory — full UPDATE failed ({ve}), falling back", flush=True)
             db.execute(text("ROLLBACK TO SAVEPOINT v3"))
             db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
                 {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
@@ -200,6 +203,7 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
                   detail=item.date_received, changed_by=item.changed_by, variety=item.variety)
         db.commit()
         result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+        print(f"PUT inventory — result variety={dict(result).get('variety')!r}", flush=True)
         return dict(result)
     except HTTPException:
         raise
