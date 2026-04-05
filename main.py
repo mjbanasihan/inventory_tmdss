@@ -2,8 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import text
-from typing import List
+from sqlalchemy import text, func
 from datetime import datetime
 import os, sys
 
@@ -11,7 +10,6 @@ from database import engine, get_db, Base
 import models
 import schemas
 
-# Warn if falling back to SQLite
 if "sqlite" in str(engine.url):
     print("WARNING: Using SQLite — data will not persist on Render!", file=sys.stderr)
 
@@ -20,7 +18,6 @@ Base.metadata.create_all(bind=engine)
 
 # ── Migrations ────────────────────────────────────────────────────────────────
 def run_migrations():
-    """Add any columns that may be missing from older DB schemas."""
     migrations = [
         "ALTER TABLE given_out_items ADD COLUMN date_given VARCHAR",
         "ALTER TABLE given_out_items ADD COLUMN changed_by VARCHAR",
@@ -38,17 +35,24 @@ def run_migrations():
                 conn.execute(text(sql))
                 conn.commit()
             except Exception:
-                pass  # Column already exists — safe to ignore
+                pass
     print("Migrations complete.", flush=True)
 
 run_migrations()
 
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
-
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-# ── Transaction log helper ─────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def ilike_filter(column, value):
+    """Case-insensitive LIKE that works on both SQLite and PostgreSQL."""
+    return func.lower(column) == func.lower(value)
+
+def ilike_search(column, value):
+    """Case-insensitive LIKE search that works on both SQLite and PostgreSQL."""
+    return func.lower(column).contains(func.lower(value))
+
 def write_log(db: Session, txn_type: str, supply_name: str, quantity: int,
               detail=None, date_given=None, changed_by=None, variety=None):
     entry = models.TransactionLog(
@@ -63,6 +67,27 @@ def write_log(db: Session, txn_type: str, supply_name: str, quantity: int,
     )
     db.add(entry)
 
+def item_to_dict(it):
+    return {
+        "id": it.id,
+        "supply_name": it.supply_name,
+        "variety": it.variety,
+        "quantity": it.quantity,
+        "date_received": it.date_received,
+        "changed_by": it.changed_by,
+    }
+
+def given_to_dict(g):
+    return {
+        "id": g.id,
+        "supply_name": g.supply_name,
+        "variety": g.variety,
+        "quantity": g.quantity,
+        "who_received": g.who_received,
+        "date_given": g.date_given,
+        "changed_by": g.changed_by,
+    }
+
 
 # ─── INVENTORY ────────────────────────────────────────────────────────────────
 
@@ -70,26 +95,16 @@ def write_log(db: Session, txn_type: str, supply_name: str, quantity: int,
 def get_inventory(search: str = "", db: Session = Depends(get_db)):
     q = db.query(models.InventoryItem)
     if search:
-        q = q.filter(models.InventoryItem.supply_name.ilike(f"%{search}%"))
+        q = q.filter(func.lower(models.InventoryItem.supply_name).contains(search.lower()))
     items = q.order_by(models.InventoryItem.id).all()
-    return [
-        {
-            "id": it.id,
-            "supply_name": it.supply_name,
-            "variety": it.variety,
-            "quantity": it.quantity,
-            "date_received": it.date_received,
-            "changed_by": it.changed_by,
-        }
-        for it in items
-    ]
+    return [item_to_dict(it) for it in items]
 
 
 @app.post("/api/inventory", status_code=201)
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
     existing = (
         db.query(models.InventoryItem)
-        .filter(models.InventoryItem.supply_name.ilike(item.supply_name))
+        .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
         .first()
     )
 
@@ -106,7 +121,7 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
                   detail=existing.date_received, changed_by=item.changed_by, variety=existing.variety)
         db.commit()
         db.refresh(existing)
-        result = existing
+        return item_to_dict(existing)
     else:
         new_item = models.InventoryItem(
             supply_name=item.supply_name,
@@ -121,16 +136,7 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
                   detail=new_item.date_received, changed_by=new_item.changed_by, variety=new_item.variety)
         db.commit()
         db.refresh(new_item)
-        result = new_item
-
-    return {
-        "id": result.id,
-        "supply_name": result.supply_name,
-        "variety": result.variety,
-        "quantity": result.quantity,
-        "date_received": result.date_received,
-        "changed_by": result.changed_by,
-    }
+        return item_to_dict(new_item)
 
 
 @app.put("/api/inventory/{item_id}")
@@ -139,9 +145,9 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    row.supply_name = item.supply_name
-    row.variety = item.variety
-    row.quantity = item.quantity
+    row.supply_name   = item.supply_name
+    row.variety       = item.variety
+    row.quantity      = item.quantity
     row.date_received = item.date_received
     if item.changed_by:
         row.changed_by = item.changed_by
@@ -151,15 +157,7 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
               detail=row.date_received, changed_by=row.changed_by, variety=row.variety)
     db.commit()
     db.refresh(row)
-
-    return {
-        "id": row.id,
-        "supply_name": row.supply_name,
-        "variety": row.variety,
-        "quantity": row.quantity,
-        "date_received": row.date_received,
-        "changed_by": row.changed_by,
-    }
+    return item_to_dict(row)
 
 
 @app.delete("/api/inventory/{item_id}", status_code=204)
@@ -179,27 +177,16 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
 def get_given_out(search: str = "", db: Session = Depends(get_db)):
     q = db.query(models.GivenOutItem)
     if search:
-        q = q.filter(models.GivenOutItem.supply_name.ilike(f"%{search}%"))
+        q = q.filter(func.lower(models.GivenOutItem.supply_name).contains(search.lower()))
     items = q.order_by(models.GivenOutItem.id).all()
-    return [
-        {
-            "id": it.id,
-            "supply_name": it.supply_name,
-            "variety": it.variety,
-            "quantity": it.quantity,
-            "who_received": it.who_received,
-            "date_given": it.date_given,
-            "changed_by": it.changed_by,
-        }
-        for it in items
-    ]
+    return [given_to_dict(g) for g in items]
 
 
 @app.post("/api/given-out", status_code=201)
 def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
     inv = (
         db.query(models.InventoryItem)
-        .filter(models.InventoryItem.supply_name.ilike(item.supply_name))
+        .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
         .first()
     )
     if not inv:
@@ -207,10 +194,8 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
     if inv.quantity < item.quantity:
         raise HTTPException(status_code=400, detail=f"Only {inv.quantity} unit(s) available")
 
-    # Carry variety from the inventory row
     variety = inv.variety or item.variety or None
 
-    # Deduct from inventory
     inv.quantity -= item.quantity
     if inv.quantity == 0:
         db.delete(inv)
@@ -226,22 +211,12 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
     )
     db.add(given)
     db.flush()
-
     write_log(db, "given_out", given.supply_name, given.quantity,
               detail=given.who_received, date_given=given.date_given,
               changed_by=given.changed_by, variety=given.variety)
     db.commit()
     db.refresh(given)
-
-    return {
-        "id": given.id,
-        "supply_name": given.supply_name,
-        "variety": given.variety,
-        "quantity": given.quantity,
-        "who_received": given.who_received,
-        "date_given": given.date_given,
-        "changed_by": given.changed_by,
-    }
+    return given_to_dict(given)
 
 
 @app.put("/api/given-out/{item_id}")
@@ -255,7 +230,7 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
     if qty_diff > 0:
         inv = (
             db.query(models.InventoryItem)
-            .filter(models.InventoryItem.supply_name.ilike(item.supply_name))
+            .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
             .first()
         )
         avail = inv.quantity if inv else 0
@@ -269,7 +244,7 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
     elif qty_diff < 0:
         inv = (
             db.query(models.InventoryItem)
-            .filter(models.InventoryItem.supply_name.ilike(item.supply_name))
+            .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
             .first()
         )
         if inv:
@@ -278,9 +253,9 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
             db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
         db.flush()
 
-    current.quantity = item.quantity
+    current.quantity     = item.quantity
     current.who_received = item.who_received
-    current.date_given = item.date_given
+    current.date_given   = item.date_given
     if item.changed_by:
         current.changed_by = item.changed_by
 
@@ -290,16 +265,7 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
               changed_by=current.changed_by, variety=current.variety)
     db.commit()
     db.refresh(current)
-
-    return {
-        "id": current.id,
-        "supply_name": current.supply_name,
-        "variety": current.variety,
-        "quantity": current.quantity,
-        "who_received": current.who_received,
-        "date_given": current.date_given,
-        "changed_by": current.changed_by,
-    }
+    return given_to_dict(current)
 
 
 @app.delete("/api/given-out/{item_id}", status_code=204)
@@ -310,7 +276,7 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
 
     inv = (
         db.query(models.InventoryItem)
-        .filter(models.InventoryItem.supply_name.ilike(row.supply_name))
+        .filter(func.lower(models.InventoryItem.supply_name) == row.supply_name.lower())
         .first()
     )
     if inv:
@@ -344,7 +310,7 @@ def get_summary(db: Session = Depends(get_db)):
 
     given_items = db.query(models.GivenOutItem).all()
     gi_map_precise = {}
-    gi_map_supply = {}
+    gi_map_supply   = {}
     for gi in given_items:
         if gi.date_given:
             key = (gi.supply_name.lower(), (gi.who_received or "").lower())
@@ -357,15 +323,15 @@ def get_summary(db: Session = Depends(get_db)):
             key = ((l.supply_name or "").lower(), (l.detail or "").lower())
             date_given = gi_map_precise.get(key) or gi_map_supply.get((l.supply_name or "").lower())
         return {
-            "id": l.id,
-            "txn_type": l.txn_type,
+            "id":          l.id,
+            "txn_type":    l.txn_type,
             "supply_name": l.supply_name,
-            "variety": l.variety,
-            "quantity": l.quantity,
-            "detail": l.detail,
-            "date_given": date_given,
-            "changed_by": l.changed_by,
-            "created_at": l.created_at,
+            "variety":     l.variety,
+            "quantity":    l.quantity,
+            "detail":      l.detail,
+            "date_given":  date_given,
+            "changed_by":  l.changed_by,
+            "created_at":  l.created_at,
         }
 
     inv_logs = [to_dict(l) for l in logs if l.txn_type in ("inventory", "inventory_deleted")]

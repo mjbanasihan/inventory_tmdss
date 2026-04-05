@@ -30,10 +30,11 @@ class TransactionLog(Base):
     __tablename__ = "transaction_log"
 
     id           = Column(Integer, primary_key=True, index=True)
-    txn_type     = Column(String, nullable=False)   # 'inventory' or 'given_out'
+    txn_type     = Column(String, nullable=False)
     supply_name  = Column(String, nullable=False)
+    variety      = Column(String, nullable=True)
     quantity     = Column(Integer, nullable=False)
-    detail       = Column(String, nullable=True)    # date_received or who_received
-    date_given   = Column(String, nullable=True)    # date_given for given_out rows
+    detail       = Column(String, nullable=True)
+    date_given   = Column(String, nullable=True)
     changed_by   = Column(String, nullable=True)
-    created_at   = Column(String, nullable=True)    # ISO datetime string
+    created_at   = Column(String, nullable=True)
