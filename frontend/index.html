@@ -306,7 +306,7 @@ tbody tr:hover .row-tip{display:block}
       <input type="text" id="f-name" placeholder="e.g. Folder" autocomplete="off"/>
     </div>
 
-    <!-- Inventory: variety (optional) -->
+    <!-- Inventory: variety text input (optional) -->
     <div id="f-variety-wrap">
       <label>Variety <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — e.g. Long, Short, Blue)</span></label>
       <input type="text" id="f-variety" placeholder="e.g. Long / Short / Blue" autocomplete="off"/>
@@ -321,7 +321,7 @@ tbody tr:hover .row-tip{display:block}
       <div id="f-stock-hint" class="hint"></div>
     </div>
 
-    <!-- Given-out: variety dropdown (shown only when selected supply has varieties) -->
+    <!-- Given-out: variety dropdown (appears after supply selected, only if varieties exist) -->
     <div id="f-variety-select-wrap" style="display:none">
       <label>Variety</label>
       <select id="f-variety-select">
@@ -595,12 +595,13 @@ function openModal(type){
   document.getElementById('modal-title').textContent = type==='current'?'Add to Current Inventory':'Give Out Supply';
 
   // Show/hide fields
-  document.getElementById('f-name-wrap').style.display        = type==='current'?'':'none';
-  document.getElementById('f-select-wrap').style.display      = type==='given'?'':'none';
-  document.getElementById('f-variety-select-wrap').style.display = 'none';
+  document.getElementById('f-name-wrap').style.display          = type==='current'?'':'none';
+  document.getElementById('f-variety-wrap').style.display       = type==='current'?'':'none';
+  document.getElementById('f-select-wrap').style.display        = type==='given'?'':'none';
+  document.getElementById('f-variety-select-wrap').style.display= 'none';
   document.getElementById('f-date-received-wrap').style.display = type==='current'?'':'none';
-  document.getElementById('f-who-wrap').style.display         = type==='given'?'':'none';
-  document.getElementById('f-date-given-wrap').style.display  = type==='given'?'':'none';
+  document.getElementById('f-who-wrap').style.display           = type==='given'?'':'none';
+  document.getElementById('f-date-given-wrap').style.display    = type==='given'?'':'none';
 
   // Reset fields
   document.getElementById('f-name').value='';
@@ -617,7 +618,7 @@ function openModal(type){
   document.getElementById('f-variety-select').innerHTML='<option value="">— Select a variety —</option>';
 
   if(type==='given'){
-    // Build supply list: group by supply_name, then track varieties
+    // Group by supply name, track per-variety quantities
     const supplyMap={};
     currentItems.forEach(it=>{
       const k=it.supply_name.toLowerCase();
@@ -665,12 +666,11 @@ function onSupplyChange(){
     hint.className='hint ok';
     qty.max=avail; qty.value='';
 
-    // Populate variety dropdown
+    // Populate variety dropdown from stored data
     let varieties=[];
     try{ varieties=JSON.parse(opt.dataset.varieties||'[]'); }catch(e){}
     varietySel.innerHTML='';
     if(varieties.length>0){
-      // If only one variety, auto-select it; otherwise show "select" placeholder
       if(varieties.length>1) varietySel.innerHTML='<option value="">— Select a variety —</option>';
       varieties.forEach(v=>{
         const o=document.createElement('option');
@@ -681,7 +681,6 @@ function onSupplyChange(){
       if(varieties.length===1) varietySel.value=varieties[0].variety;
       varietyWrap.style.display='';
     } else {
-      // No varieties for this supply — hide the dropdown
       varietySel.innerHTML='<option value="">—</option>';
       varietyWrap.style.display='none';
     }
@@ -716,7 +715,6 @@ async function saveItem(){
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
       if(qty>avail){ toast('Only '+avail+' available','error'); btn.disabled=false; btn.textContent='Save'; return; }
-      // Read variety from dropdown (if visible)
       const varietySel=document.getElementById('f-variety-select');
       const variety=varietySel.value||null;
       const who=document.getElementById('f-who').value.trim();
