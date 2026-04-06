@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import text, func
+from sqlalchemy import text
+from typing import List
 from datetime import datetime
 import os, sys
 
@@ -10,6 +11,7 @@ from database import engine, get_db, Base
 import models
 import schemas
 
+# Warn if falling back to SQLite
 if "sqlite" in str(engine.url):
     print("WARNING: Using SQLite — data will not persist on Render!", file=sys.stderr)
 
@@ -35,139 +37,179 @@ def run_migrations():
                 conn.execute(text(sql))
                 conn.commit()
             except Exception:
-                pass
-    print("Migrations complete.", flush=True)
+                pass  # Column already exists — safe to ignore
+        # Verify variety column is readable — force a read to confirm
+        try:
+            conn.execute(text("SELECT variety FROM inventory_items LIMIT 1"))
+            conn.commit()
+            print("variety column confirmed on inventory_items", flush=True)
+        except Exception as e:
+            print(f"variety column MISSING on inventory_items: {e}", flush=True)
 
 run_migrations()
 
+# ── Detect which optional columns actually exist in live DB ──────────────────
+def col_exists(table, col):
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(f"SELECT {col} FROM {table} LIMIT 1"))
+        return True
+    except Exception:
+        return False
+
+# Re-detect after migrations have run
+def refresh_flags():
+    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY, HAS_VARIETY_GIVEN, HAS_VARIETY_TXN
+    HAS_DATE_GIVEN    = col_exists("given_out_items", "date_given")
+    HAS_CB_GIVEN      = col_exists("given_out_items", "changed_by")
+    HAS_TXN_DATE      = col_exists("transaction_log",  "date_given")
+    HAS_CB_TXN        = col_exists("transaction_log",  "changed_by")
+    HAS_CB_INV        = col_exists("inventory_items",  "changed_by")
+    HAS_VARIETY       = col_exists("inventory_items",  "variety")
+    HAS_VARIETY_GIVEN = col_exists("given_out_items",  "variety")
+    HAS_VARIETY_TXN   = col_exists("transaction_log",  "variety")
+    print(f"Columns — inv.variety:{HAS_VARIETY} giv.variety:{HAS_VARIETY_GIVEN} txn.variety:{HAS_VARIETY_TXN}", flush=True)
+
+HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = HAS_VARIETY = HAS_VARIETY_GIVEN = HAS_VARIETY_TXN = False
+refresh_flags()
+
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+@app.on_event("startup")
+def on_startup():
+    refresh_flags()
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-def ilike_filter(column, value):
-    """Case-insensitive LIKE that works on both SQLite and PostgreSQL."""
-    return func.lower(column) == func.lower(value)
-
-def ilike_search(column, value):
-    """Case-insensitive LIKE search that works on both SQLite and PostgreSQL."""
-    return func.lower(column).contains(func.lower(value))
-
-def write_log(db: Session, txn_type: str, supply_name: str, quantity: int,
-              detail=None, date_given=None, changed_by=None, variety=None):
-    entry = models.TransactionLog(
-        txn_type=txn_type,
-        supply_name=supply_name,
-        variety=variety,
-        quantity=quantity,
-        detail=detail,
-        date_given=date_given,
-        changed_by=changed_by,
-        created_at=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"),
-    )
-    db.add(entry)
-
-def item_to_dict(it):
-    return {
-        "id": it.id,
-        "supply_name": it.supply_name,
-        "variety": it.variety,
-        "quantity": it.quantity,
-        "date_received": it.date_received,
-        "changed_by": it.changed_by,
-    }
-
-def given_to_dict(g):
-    return {
-        "id": g.id,
-        "supply_name": g.supply_name,
-        "variety": g.variety,
-        "quantity": g.quantity,
-        "who_received": g.who_received,
-        "date_given": g.date_given,
-        "changed_by": g.changed_by,
-    }
-
+def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None, variety=None):
+    """Append to transaction_log. Uses savepoints so failures never roll back the caller's data."""
+    ca = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    for sql, params in [
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,variety,quantity,detail,date_given,changed_by,created_at) VALUES (:t,:sn,:v,:qty,:det,:dg,:cb,:ca)",
+            {"t":txn_type,"sn":supply_name,"v":variety,"qty":quantity,"det":detail,"dg":date_given,"cb":changed_by,"ca":ca}
+        ),
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,date_given,changed_by,created_at) VALUES (:t,:sn,:qty,:det,:dg,:cb,:ca)",
+            {"t":txn_type,"sn":supply_name,"qty":quantity,"det":detail,"dg":date_given,"cb":changed_by,"ca":ca}
+        ),
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,changed_by,created_at) VALUES (:t,:sn,:qty,:det,:cb,:ca)",
+            {"t":txn_type,"sn":supply_name,"qty":quantity,"det":detail,"cb":changed_by,"ca":ca}
+        ),
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,created_at) VALUES (:t,:sn,:qty,:det,:ca)",
+            {"t":txn_type,"sn":supply_name,"qty":quantity,"det":detail,"ca":ca}
+        ),
+    ]:
+        try:
+            db.execute(text("SAVEPOINT log_sp"))
+            db.execute(text(sql), params)
+            db.execute(text("RELEASE SAVEPOINT log_sp"))
+            return  # success
+        except Exception:
+            try: db.execute(text("ROLLBACK TO SAVEPOINT log_sp"))
+            except: pass
 
 # ─── INVENTORY ────────────────────────────────────────────────────────────────
 
 @app.get("/api/inventory")
 def get_inventory(search: str = "", db: Session = Depends(get_db)):
-    q = db.query(models.InventoryItem)
-    if search:
-        q = q.filter(func.lower(models.InventoryItem.supply_name).contains(search.lower()))
-    items = q.order_by(models.InventoryItem.id).all()
-    return [item_to_dict(it) for it in items]
+    try:
+        if search:
+            rows = db.execute(text(
+                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, COALESCE(date_received, '') as date_received, COALESCE(changed_by, '') as changed_by FROM inventory_items WHERE LOWER(supply_name) LIKE LOWER(:s) ORDER BY id"
+            ), {"s": f"%{search}%"}).mappings().all()
+        else:
+            rows = db.execute(text(
+                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, COALESCE(date_received, '') as date_received, COALESCE(changed_by, '') as changed_by FROM inventory_items ORDER BY id"
+            )).mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        import traceback
+        print("GET /api/inventory ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/inventory", status_code=201)
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
-    existing = (
-        db.query(models.InventoryItem)
-        .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
-        .first()
-    )
+    import traceback
+    try:
+        existing = db.execute(text(
+            "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
+        ), {"sn": item.supply_name}).mappings().first()
 
-    if existing:
-        existing.quantity += item.quantity
-        if item.date_received:
-            existing.date_received = item.date_received
-        if item.variety is not None:
-            existing.variety = item.variety
-        if item.changed_by:
-            existing.changed_by = item.changed_by
-        db.flush()
-        write_log(db, "inventory", existing.supply_name, item.quantity,
-                  detail=existing.date_received, changed_by=item.changed_by, variety=existing.variety)
+        if existing:
+            new_qty = existing["quantity"] + item.quantity
+            dr = item.date_received or existing.get("date_received")
+            if HAS_VARIETY:
+                db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb WHERE id=:id"),
+                    {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "id": existing["id"]})
+            else:
+                db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr WHERE id=:id"),
+                    {"qty": new_qty, "dr": dr, "id": existing["id"]})
+            db.commit()
+            result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": existing["id"]}).mappings().first()
+        else:
+            if HAS_VARIETY:
+                db.execute(text("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by) VALUES (:sn,:v,:qty,:dr,:cb)"),
+                    {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by})
+            else:
+                db.execute(text("INSERT INTO inventory_items (supply_name,quantity,date_received) VALUES (:sn,:qty,:dr)"),
+                    {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received})
+            db.commit()
+            result = db.execute(text("SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) ORDER BY id DESC LIMIT 1"),
+                {"sn": item.supply_name}).mappings().first()
+
+        write_log(db, "inventory", item.supply_name, item.quantity,
+                  detail=item.date_received, changed_by=item.changed_by, variety=item.variety)
         db.commit()
-        db.refresh(existing)
-        return item_to_dict(existing)
-    else:
-        new_item = models.InventoryItem(
-            supply_name=item.supply_name,
-            variety=item.variety,
-            quantity=item.quantity,
-            date_received=item.date_received,
-            changed_by=item.changed_by,
-        )
-        db.add(new_item)
-        db.flush()
-        write_log(db, "inventory", new_item.supply_name, new_item.quantity,
-                  detail=new_item.date_received, changed_by=new_item.changed_by, variety=new_item.variety)
-        db.commit()
-        db.refresh(new_item)
-        return item_to_dict(new_item)
+        return dict(result) if result else {"id": 0, "supply_name": item.supply_name, "quantity": item.quantity}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("POST /api/inventory ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/inventory/{item_id}")
 def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
-    row = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    row.supply_name   = item.supply_name
-    row.variety       = item.variety
-    row.quantity      = item.quantity
-    row.date_received = item.date_received
-    if item.changed_by:
-        row.changed_by = item.changed_by
-
-    db.flush()
-    write_log(db, "inventory", row.supply_name, row.quantity,
-              detail=row.date_received, changed_by=row.changed_by, variety=row.variety)
-    db.commit()
-    db.refresh(row)
-    return item_to_dict(row)
+    import traceback
+    try:
+        print(f"PUT /api/inventory/{item_id} — variety={item.variety!r}", flush=True)
+        row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if HAS_VARIETY:
+            db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
+                {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
+            print(f"PUT inventory — variety={item.variety!r} saved", flush=True)
+        else:
+            db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
+                {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
+        db.commit()
+        write_log(db, "inventory", item.supply_name, item.quantity,
+                  detail=item.date_received, changed_by=item.changed_by, variety=item.variety)
+        db.commit()
+        result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
+        print(f"PUT inventory — result variety={dict(result).get('variety')!r}", flush=True)
+        return dict(result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("PUT /api/inventory ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/inventory/{item_id}", status_code=204)
 def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
-    row = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id).first()
+    row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
-    write_log(db, "inventory_deleted", row.supply_name, row.quantity,
-              detail=row.date_received, variety=row.variety)
-    db.delete(row)
+    db.execute(text("DELETE FROM inventory_items WHERE id=:id"), {"id": item_id})
+    db.commit()
+    write_log(db, "inventory_deleted", row["supply_name"], row["quantity"], detail=row.get("date_received"))
     db.commit()
 
 
@@ -175,206 +217,310 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/given-out")
 def get_given_out(search: str = "", db: Session = Depends(get_db)):
-    q = db.query(models.GivenOutItem)
-    if search:
-        q = q.filter(func.lower(models.GivenOutItem.supply_name).contains(search.lower()))
-    items = q.order_by(models.GivenOutItem.id).all()
-    return [given_to_dict(g) for g in items]
+    try:
+        if search:
+            rows = db.execute(text(
+                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, who_received, COALESCE(date_given, '') as date_given, COALESCE(changed_by, '') as changed_by FROM given_out_items WHERE LOWER(supply_name) LIKE LOWER(:s) ORDER BY id"
+            ), {"s": f"%{search}%"}).mappings().all()
+        else:
+            rows = db.execute(text(
+                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, who_received, COALESCE(date_given, '') as date_given, COALESCE(changed_by, '') as changed_by FROM given_out_items ORDER BY id"
+            )).mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        import traceback
+        print("GET /api/given-out ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/given-out", status_code=201)
 def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
-    inv = (
-        db.query(models.InventoryItem)
-        .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
-        .first()
-    )
-    if not inv:
-        raise HTTPException(status_code=400, detail=f"'{item.supply_name}' not found in inventory")
-    if inv.quantity < item.quantity:
-        raise HTTPException(status_code=400, detail=f"Only {inv.quantity} unit(s) available")
+    import traceback
+    try:
+        # Check available stock — fetch variety too
+        inv = db.execute(text(
+            "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
+        ), {"sn": item.supply_name}).mappings().first()
+        if not inv:
+            raise HTTPException(status_code=400, detail=f"'{item.supply_name}' not found in inventory")
+        if inv["quantity"] < item.quantity:
+            raise HTTPException(status_code=400, detail=f"Only {inv['quantity']} unit(s) available")
 
-    variety = inv.variety or item.variety or None
+        # Carry variety from inventory item
+        variety = inv.get("variety") or item.variety or None
 
-    inv.quantity -= item.quantity
-    if inv.quantity == 0:
-        db.delete(inv)
-    db.flush()
+        # Deduct from inventory
+        new_qty = inv["quantity"] - item.quantity
+        if new_qty == 0:
+            db.execute(text("DELETE FROM inventory_items WHERE id=:id"), {"id": inv["id"]})
+        else:
+            db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_qty, "id": inv["id"]})
 
-    given = models.GivenOutItem(
-        supply_name=item.supply_name,
-        variety=variety,
-        quantity=item.quantity,
-        who_received=item.who_received,
-        date_given=item.date_given,
-        changed_by=item.changed_by,
-    )
-    db.add(given)
-    db.flush()
-    write_log(db, "given_out", given.supply_name, given.quantity,
-              detail=given.who_received, date_given=given.date_given,
-              changed_by=given.changed_by, variety=given.variety)
-    db.commit()
-    db.refresh(given)
-    return given_to_dict(given)
+        # Insert given-out row — include variety if column exists
+        # Try full insert with all optional columns, fallback gracefully
+        for giv_sql, giv_p in [
+            ("INSERT INTO given_out_items (supply_name,variety,quantity,who_received,date_given,changed_by) VALUES (:sn,:v,:qty,:who,:dg,:cb)",
+             {"sn":item.supply_name,"v":variety,"qty":item.quantity,"who":item.who_received,"dg":item.date_given,"cb":item.changed_by}),
+            ("INSERT INTO given_out_items (supply_name,quantity,who_received,date_given,changed_by) VALUES (:sn,:qty,:who,:dg,:cb)",
+             {"sn":item.supply_name,"qty":item.quantity,"who":item.who_received,"dg":item.date_given,"cb":item.changed_by}),
+            ("INSERT INTO given_out_items (supply_name,quantity,who_received) VALUES (:sn,:qty,:who)",
+             {"sn":item.supply_name,"qty":item.quantity,"who":item.who_received}),
+        ]:
+            try:
+                db.execute(text("SAVEPOINT giv_ins"))
+                db.execute(text(giv_sql), giv_p)
+                db.execute(text("RELEASE SAVEPOINT giv_ins"))
+                break
+            except Exception:
+                try: db.execute(text("ROLLBACK TO SAVEPOINT giv_ins"))
+                except: pass
+
+        # Log transaction — include variety if column exists
+        write_log(db, "given_out", item.supply_name, item.quantity,
+                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by, variety=variety)
+
+        db.commit()
+
+        row = db.execute(text("SELECT * FROM given_out_items ORDER BY id DESC LIMIT 1")).mappings().first()
+        return dict(row) if row else {"id": 0, "supply_name": item.supply_name, "quantity": item.quantity, "who_received": item.who_received, "date_given": item.date_given}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("POST /api/given-out ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/given-out/{item_id}")
 def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
-    current = db.query(models.GivenOutItem).filter(models.GivenOutItem.id == item_id).first()
-    if not current:
-        raise HTTPException(status_code=404, detail="Item not found")
+    import traceback
+    try:
+        current = db.execute(text(
+            "SELECT * FROM given_out_items WHERE id=:id"
+        ), {"id": item_id}).mappings().first()
+        if not current:
+            raise HTTPException(status_code=404, detail="Item not found")
 
-    qty_diff = item.quantity - current.quantity
+        qty_diff = item.quantity - current["quantity"]
 
-    if qty_diff > 0:
-        inv = (
-            db.query(models.InventoryItem)
-            .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
-            .first()
-        )
-        avail = inv.quantity if inv else 0
-        if avail < qty_diff:
-            raise HTTPException(status_code=400, detail=f"Only {avail} unit(s) available in inventory")
-        inv.quantity -= qty_diff
-        if inv.quantity == 0:
-            db.delete(inv)
-        db.flush()
+        if qty_diff > 0:
+            inv = db.execute(text(
+                "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
+            ), {"sn": item.supply_name}).mappings().first()
+            avail = inv["quantity"] if inv else 0
+            if avail < qty_diff:
+                raise HTTPException(status_code=400, detail=f"Only {avail} unit(s) available in inventory")
+            new_inv_qty = avail - qty_diff
+            if new_inv_qty == 0:
+                db.execute(text("DELETE FROM inventory_items WHERE id=:id"), {"id": inv["id"]})
+            else:
+                db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_inv_qty, "id": inv["id"]})
 
-    elif qty_diff < 0:
-        inv = (
-            db.query(models.InventoryItem)
-            .filter(func.lower(models.InventoryItem.supply_name) == item.supply_name.lower())
-            .first()
-        )
-        if inv:
-            inv.quantity += abs(qty_diff)
+        elif qty_diff < 0:
+            inv = db.execute(text(
+                "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
+            ), {"sn": item.supply_name}).mappings().first()
+            if inv:
+                db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"),
+                           {"q": inv["quantity"] + abs(qty_diff), "id": inv["id"]})
+            else:
+                db.execute(text(
+                    "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
+                ), {"sn": item.supply_name, "qty": abs(qty_diff)})
+
+        # Update — use flags to decide columns
+        if HAS_DATE_GIVEN and HAS_CB_GIVEN:
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg, changed_by=:cb WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by, "id": item_id})
+        elif HAS_DATE_GIVEN:
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
+        elif HAS_CB_GIVEN:
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, changed_by=:cb WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "cb": item.changed_by, "id": item_id})
         else:
-            db.add(models.InventoryItem(supply_name=item.supply_name, quantity=abs(qty_diff)))
-        db.flush()
+            db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
 
-    current.quantity     = item.quantity
-    current.who_received = item.who_received
-    current.date_given   = item.date_given
-    if item.changed_by:
-        current.changed_by = item.changed_by
+        db.commit()
 
-    db.flush()
-    write_log(db, "given_out", current.supply_name, current.quantity,
-              detail=current.who_received, date_given=current.date_given,
-              changed_by=current.changed_by, variety=current.variety)
-    db.commit()
-    db.refresh(current)
-    return given_to_dict(current)
+        # Log the edit
+        write_log(db, "given_out", item.supply_name, item.quantity,
+                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by)
+        db.commit()
+
+        updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
+        return dict(updated)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("PUT /api/given-out ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/given-out/{item_id}", status_code=204)
 def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
-    row = db.query(models.GivenOutItem).filter(models.GivenOutItem.id == item_id).first()
+    row = db.execute(text(
+        "SELECT * FROM given_out_items WHERE id=:id"
+    ), {"id": item_id}).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    inv = (
-        db.query(models.InventoryItem)
-        .filter(func.lower(models.InventoryItem.supply_name) == row.supply_name.lower())
-        .first()
-    )
+    # Restore quantity to inventory
+    inv = db.execute(text(
+        "SELECT id, quantity FROM inventory_items WHERE supply_name ILIKE :sn LIMIT 1"
+    ), {"sn": row["supply_name"]}).mappings().first()
     if inv:
-        inv.quantity += row.quantity
+        db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"),
+                   {"q": inv["quantity"] + row["quantity"], "id": inv["id"]})
     else:
-        db.add(models.InventoryItem(supply_name=row.supply_name, quantity=row.quantity))
-    db.flush()
+        db.execute(text(
+            "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
+        ), {"sn": row["supply_name"], "qty": row["quantity"]})
 
-    write_log(db, "given_out_deleted", row.supply_name, row.quantity,
-              detail=row.who_received, date_given=row.date_given, variety=row.variety)
-    db.delete(row)
+    db.execute(text("DELETE FROM given_out_items WHERE id=:id"), {"id": item_id})
+    db.commit()
+    write_log(db, "given_out_deleted", row["supply_name"], row["quantity"],
+              detail=row["who_received"], date_given=row.get("date_given"))
     db.commit()
 
 
-# ─── DELETE LOG ENTRY ─────────────────────────────────────────────────────────
+# ─── DELETE LOG ENTRY ────────────────────────────────────────────────────────
 
 @app.delete("/api/log/{log_id}", status_code=204)
 def delete_log_entry(log_id: int, db: Session = Depends(get_db)):
-    row = db.query(models.TransactionLog).filter(models.TransactionLog.id == log_id).first()
+    row = db.execute(text("SELECT id FROM transaction_log WHERE id=:id"), {"id": log_id}).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Log entry not found")
-    db.delete(row)
+    db.execute(text("DELETE FROM transaction_log WHERE id=:id"), {"id": log_id})
     db.commit()
 
 
-# ─── SUMMARY ──────────────────────────────────────────────────────────────────
+# ─── SUMMARY — reads from transaction log ────────────────────────────────────
 
 @app.get("/api/summary")
 def get_summary(db: Session = Depends(get_db)):
-    logs = db.query(models.TransactionLog).order_by(models.TransactionLog.id).all()
+    import traceback
+    try:
+        # Fetch all log entries
+        result = db.execute(text("SELECT * FROM transaction_log ORDER BY id")).mappings().all()
+        logs = [dict(r) for r in result]
 
-    given_items = db.query(models.GivenOutItem).all()
-    gi_map_precise = {}
-    gi_map_supply   = {}
-    for gi in given_items:
-        if gi.date_given:
-            key = (gi.supply_name.lower(), (gi.who_received or "").lower())
-            gi_map_precise.setdefault(key, gi.date_given)
-            gi_map_supply.setdefault(gi.supply_name.lower(), gi.date_given)
+        # Fetch given_out_items to backfill missing date_given in log
+        try:
+            gi_rows = db.execute(text("SELECT supply_name, who_received, date_given FROM given_out_items")).mappings().all()
+            # Build two maps for matching:
+            # 1. (supply_name, who_received) -> date_given  (precise match)
+            # 2. supply_name -> date_given                  (fallback)
+            gi_map_precise = {}
+            gi_map_supply  = {}
+            for gi in gi_rows:
+                sn  = (gi["supply_name"] or "").lower()
+                who = (gi.get("who_received") or "").lower()
+                dg  = gi.get("date_given")
+                if dg:
+                    key_precise = (sn, who)
+                    if key_precise not in gi_map_precise:
+                        gi_map_precise[key_precise] = dg
+                    if sn not in gi_map_supply:
+                        gi_map_supply[sn] = dg
+        except Exception:
+            gi_map_precise = {}
+            gi_map_supply  = {}
 
-    def to_dict(l):
-        date_given = l.date_given
-        if l.txn_type in ("given_out", "given_out_deleted") and not date_given:
-            key = ((l.supply_name or "").lower(), (l.detail or "").lower())
-            date_given = gi_map_precise.get(key) or gi_map_supply.get((l.supply_name or "").lower())
+        # Backfill date_given from given_out_items where missing in log
+        for l in logs:
+            if l.get("txn_type") in ("given_out", "given_out_deleted") and not l.get("date_given"):
+                sn  = (l.get("supply_name") or "").lower()
+                who = (l.get("detail") or "").lower()  # detail = who_received in log
+                dg  = gi_map_precise.get((sn, who)) or gi_map_supply.get(sn)
+                if dg:
+                    l["date_given"] = dg
+
+        inv_logs = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_deleted")]
+        giv_logs = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_deleted")]
+
+        def safe_log(l):
+            return {
+                "id":          l.get("id"),
+                "txn_type":    l.get("txn_type"),
+                "supply_name": l.get("supply_name"),
+                "variety":     l.get("variety"),
+                "quantity":    l.get("quantity", 0),
+                "detail":      l.get("detail"),
+                "date_given":  l.get("date_given"),
+                "changed_by":  l.get("changed_by"),
+                "created_at":  l.get("created_at"),
+            }
+
+        # Get actual current stock from live tables (not log totals)
+        try:
+            inv_stock = db.execute(text("SELECT COALESCE(SUM(quantity),0) AS total FROM inventory_items")).mappings().first()
+            current_inv_units = int(inv_stock["total"] or 0)
+        except Exception:
+            current_inv_units = sum(l.get("quantity", 0) for l in inv_logs)
+
+        try:
+            giv_stock = db.execute(text("SELECT COALESCE(SUM(quantity),0) AS total FROM given_out_items")).mappings().first()
+            current_giv_units = int(giv_stock["total"] or 0)
+        except Exception:
+            current_giv_units = sum(l.get("quantity", 0) for l in giv_logs)
+
         return {
-            "id":          l.id,
-            "txn_type":    l.txn_type,
-            "supply_name": l.supply_name,
-            "variety":     l.variety,
-            "quantity":    l.quantity,
-            "detail":      l.detail,
-            "date_given":  date_given,
-            "changed_by":  l.changed_by,
-            "created_at":  l.created_at,
+            "inventory": {
+                "total_lines": len(inv_logs),
+                "total_units": current_inv_units,
+                "items": [safe_log(l) for l in inv_logs]
+            },
+            "given_out": {
+                "total_lines": len(giv_logs),
+                "total_units": current_giv_units,
+                "items": [safe_log(l) for l in giv_logs]
+            }
         }
-
-    inv_logs = [to_dict(l) for l in logs if l.txn_type in ("inventory", "inventory_deleted")]
-    giv_logs = [to_dict(l) for l in logs if l.txn_type in ("given_out", "given_out_deleted")]
-
-    current_inv = db.query(models.InventoryItem).all()
-    current_giv = db.query(models.GivenOutItem).all()
-
-    return {
-        "inventory": {
-            "total_lines": len(inv_logs),
-            "total_units": sum(i.quantity for i in current_inv),
-            "items": inv_logs,
-        },
-        "given_out": {
-            "total_lines": len(giv_logs),
-            "total_units": sum(g.quantity for g in current_giv),
-            "items": giv_logs,
-        },
-    }
+    except Exception as e:
+        print("GET /api/summary ERROR:", traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── DEBUG ────────────────────────────────────────────────────────────────────
+# ─── DEBUG — remove after confirming fix ─────────────────────────────────────
 
 @app.get("/api/debug")
 def debug_data(db: Session = Depends(get_db)):
-    return {
-        "inventory_items": [
-            {"id": i.id, "supply_name": i.supply_name, "variety": i.variety, "quantity": i.quantity}
-            for i in db.query(models.InventoryItem).order_by(models.InventoryItem.id.desc()).limit(5).all()
-        ],
-        "given_out_items": [
-            {"id": g.id, "supply_name": g.supply_name, "variety": g.variety, "quantity": g.quantity}
-            for g in db.query(models.GivenOutItem).order_by(models.GivenOutItem.id.desc()).limit(5).all()
-        ],
-        "transaction_log": [
-            {"id": l.id, "txn_type": l.txn_type, "supply_name": l.supply_name, "variety": l.variety}
-            for l in db.query(models.TransactionLog).order_by(models.TransactionLog.id.desc()).limit(5).all()
-        ],
+    result = {}
+    try:
+        inv = db.execute(text("SELECT * FROM inventory_items ORDER BY id DESC LIMIT 5")).mappings().all()
+        result["inventory_items"] = [dict(r) for r in inv]
+    except Exception as e:
+        result["inventory_items_error"] = str(e)
+    try:
+        gi = db.execute(text("SELECT * FROM given_out_items ORDER BY id DESC LIMIT 5")).mappings().all()
+        result["given_out_items"] = [dict(r) for r in gi]
+    except Exception as e:
+        result["given_out_items_error"] = str(e)
+    try:
+        logs = db.execute(text("SELECT * FROM transaction_log ORDER BY id DESC LIMIT 5")).mappings().all()
+        result["transaction_log"] = [dict(r) for r in logs]
+    except Exception as e:
+        result["transaction_log_error"] = str(e)
+    result["flags"] = {
+        "HAS_VARIETY":       HAS_VARIETY,
+        "HAS_VARIETY_GIVEN": HAS_VARIETY_GIVEN,
+        "HAS_VARIETY_TXN":   HAS_VARIETY_TXN,
+        "HAS_DATE_GIVEN":    HAS_DATE_GIVEN,
+        "HAS_CB_GIVEN":      HAS_CB_GIVEN,
+        "HAS_TXN_DATE":      HAS_TXN_DATE,
+        "HAS_CB_TXN":        HAS_CB_TXN,
     }
+    return result
 
 
-# ─── SERVE FRONTEND ───────────────────────────────────────────────────────────
+# ─── SERVE FRONTEND ──────────────────────────────────────────────────────────
 
 frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 
