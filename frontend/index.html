@@ -446,6 +446,7 @@ const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function toTitleCase(s){ return s.replace(/\w\S*/g,w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()); }
 function isoToDisplay(iso){
   if(!iso||iso==='—') return iso||'';
   const p=iso.split('-');
@@ -660,10 +661,10 @@ async function saveItem(){
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
     if(activeTable==='current'){
-      const name=document.getElementById('f-name').value.trim();
+      const name=toTitleCase(document.getElementById('f-name').value.trim());
       if(!name){ toast('Enter a supply name','error'); btn.disabled=false; btn.textContent='Save'; return; }
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
-      const variety=document.getElementById('f-variety').value.trim()||null;
+      const variety=document.getElementById('f-variety').value.trim()?toTitleCase(document.getElementById('f-variety').value.trim()):null;
       const dateReceived=document.getElementById('f-date-received').value||null;
       const changedBy=document.getElementById('f-changed-by').value.trim();
       await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:changedBy||null})});
@@ -729,8 +730,8 @@ function closeInvEdit(){
 
 async function saveInvEdit(){
   const id=parseInt(document.getElementById('ie-id').value);
-  const name=document.getElementById('ie-name').value.trim();
-  const variety=document.getElementById('ie-variety').value.trim()||null;
+  const name=toTitleCase(document.getElementById('ie-name').value.trim());
+  const variety=document.getElementById('ie-variety').value.trim()?toTitleCase(document.getElementById('ie-variety').value.trim()):null;
   const qty=parseInt(document.getElementById('ie-qty').value)||0;
   const date=document.getElementById('ie-date').value||null;
   const btn=document.getElementById('btn-save-inv-edit');
@@ -918,15 +919,12 @@ function renderSummaryTable(){
     const monthFilter=document.getElementById('month-filter').value;
     if(monthFilter) rows=rows.filter(r=>r.isoDate&&r.isoDate.slice(0,7)===monthFilter);
 
-    // Sort chronologically by the supply date (date received / date given), then by log ID for ties
+    // Sort by transaction creation time (FIFO — first transaction first)
     rows.sort((a,b)=>{
-      const da=a.isoDate||'';
-      const db=b.isoDate||'';
-      if(!da && !db) return a.logId - b.logId;
-      if(!da) return 1;
-      if(!db) return -1;
-      if(da!==db) return da.localeCompare(db);
-      return a.logId - b.logId;
+      if(!a.createdAt && !b.createdAt) return a.logId - b.logId;
+      if(!a.createdAt) return 1;
+      if(!b.createdAt) return -1;
+      return a.createdAt.localeCompare(b.createdAt);
     });
     if(search) rows=rows.filter(r=>
       (r.name||'').toLowerCase().includes(search)||
@@ -982,7 +980,7 @@ function exportPDF(){
   if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:['Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
-  pdfRowsRaw.sort((a,b)=>{ const da=a.iso||'',db=b.iso||''; if(!da&&!db)return a.id-b.id; if(!da)return 1; if(!db)return -1; if(da!==db)return da.localeCompare(db); return a.id-b.id; });
+  pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
   pdfRowsRaw.forEach(r=>rows.push(r.row));
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
   const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
