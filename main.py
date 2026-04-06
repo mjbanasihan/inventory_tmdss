@@ -141,9 +141,15 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
     import traceback
     try:
-        existing = db.execute(text(
-            "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
-        ), {"sn": item.supply_name}).mappings().first()
+        # Match on both supply_name AND variety so different varieties stay as separate rows
+        if HAS_VARIETY and item.variety:
+            existing = db.execute(text(
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
+            ), {"sn": item.supply_name, "v": item.variety}).mappings().first()
+        else:
+            existing = db.execute(text(
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND (variety IS NULL OR variety='') LIMIT 1"
+            ), {"sn": item.supply_name}).mappings().first()
 
         if existing:
             new_qty = existing["quantity"] + item.quantity
@@ -249,16 +255,21 @@ def get_given_out(search: str = "", db: Session = Depends(get_db)):
 def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
     import traceback
     try:
-        # Check available stock — fetch variety too
-        inv = db.execute(text(
-            "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
-        ), {"sn": item.supply_name}).mappings().first()
+        # Check available stock — match on (supply_name, variety) so different varieties stay separate
+        if item.variety:
+            inv = db.execute(text(
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
+            ), {"sn": item.supply_name, "v": item.variety}).mappings().first()
+        else:
+            inv = db.execute(text(
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
+            ), {"sn": item.supply_name}).mappings().first()
         if not inv:
             raise HTTPException(status_code=400, detail=f"'{item.supply_name}' not found in inventory")
         if inv["quantity"] < item.quantity:
             raise HTTPException(status_code=400, detail=f"Only {inv['quantity']} unit(s) available")
 
-        # Carry variety from inventory item
+        # Use the matched inventory row's variety
         variety = inv.get("variety") or item.variety or None
 
         # Deduct from inventory
@@ -315,10 +326,17 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
 
         qty_diff = item.quantity - current["quantity"]
 
+        # Helper: look up inventory row by (supply_name, variety) for this record
+        row_variety = current.get("variety") or ""
+        if row_variety:
+            inv_lookup_sql = "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
+            inv_lookup_p   = {"sn": item.supply_name, "v": row_variety}
+        else:
+            inv_lookup_sql = "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND (variety IS NULL OR variety='') LIMIT 1"
+            inv_lookup_p   = {"sn": item.supply_name}
+
         if qty_diff > 0:
-            inv = db.execute(text(
-                "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
-            ), {"sn": item.supply_name}).mappings().first()
+            inv = db.execute(text(inv_lookup_sql), inv_lookup_p).mappings().first()
             avail = inv["quantity"] if inv else 0
             if avail < qty_diff:
                 raise HTTPException(status_code=400, detail=f"Only {avail} unit(s) available in inventory")
@@ -329,16 +347,14 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
                 db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_inv_qty, "id": inv["id"]})
 
         elif qty_diff < 0:
-            inv = db.execute(text(
-                "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) LIMIT 1"
-            ), {"sn": item.supply_name}).mappings().first()
+            inv = db.execute(text(inv_lookup_sql), inv_lookup_p).mappings().first()
             if inv:
                 db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"),
                            {"q": inv["quantity"] + abs(qty_diff), "id": inv["id"]})
             else:
                 db.execute(text(
-                    "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
-                ), {"sn": item.supply_name, "qty": abs(qty_diff)})
+                    "INSERT INTO inventory_items (supply_name, variety, quantity) VALUES (:sn, :v, :qty)"
+                ), {"sn": item.supply_name, "v": row_variety or None, "qty": abs(qty_diff)})
 
         # Update — use flags to decide columns
         if HAS_DATE_GIVEN and HAS_CB_GIVEN:
@@ -383,17 +399,23 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    # Restore quantity to inventory
-    inv = db.execute(text(
-        "SELECT id, quantity FROM inventory_items WHERE supply_name ILIKE :sn LIMIT 1"
-    ), {"sn": row["supply_name"]}).mappings().first()
+    # Restore quantity to the correct inventory row (match supply_name + variety)
+    row_variety = row.get("variety") or ""
+    if row_variety:
+        inv = db.execute(text(
+            "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
+        ), {"sn": row["supply_name"], "v": row_variety}).mappings().first()
+    else:
+        inv = db.execute(text(
+            "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND (variety IS NULL OR variety='') LIMIT 1"
+        ), {"sn": row["supply_name"]}).mappings().first()
     if inv:
         db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"),
                    {"q": inv["quantity"] + row["quantity"], "id": inv["id"]})
     else:
         db.execute(text(
-            "INSERT INTO inventory_items (supply_name, quantity) VALUES (:sn, :qty)"
-        ), {"sn": row["supply_name"], "qty": row["quantity"]})
+            "INSERT INTO inventory_items (supply_name, variety, quantity) VALUES (:sn, :v, :qty)"
+        ), {"sn": row["supply_name"], "v": row_variety or None, "qty": row["quantity"]})
 
     db.execute(text("DELETE FROM given_out_items WHERE id=:id"), {"id": item_id})
     db.commit()
