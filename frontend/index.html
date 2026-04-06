@@ -209,7 +209,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Date Received</th><th></th></tr></thead>
+          <thead><tr><th>P.O. No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Date Received</th><th></th></tr></thead>
           <tbody id="tbody-current"></tbody>
         </table>
 
@@ -236,7 +236,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Who Received</th><th>Date Given</th><th></th></tr></thead>
+          <thead><tr><th>P.O. No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Who Received</th><th>Date Given</th><th></th></tr></thead>
           <tbody id="tbody-given"></tbody>
         </table>
 
@@ -288,7 +288,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th class="col-edited-by">Edited By</th><th></th></tr></thead>
+        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th class="col-edited-by">Edited By</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -1008,7 +1008,7 @@ function exportPDF(){
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
-    head: [['#','Type','Supply Name','Variety','Qty','Date','Recipient']],
+    head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient']],
     body: rows.map((r,i)=>[i+1,...r]),
     styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
     headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
