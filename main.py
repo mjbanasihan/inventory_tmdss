@@ -20,31 +20,27 @@ Base.metadata.create_all(bind=engine)
 
 # ── Migrations ────────────────────────────────────────────────────────────────
 def run_migrations():
+    """Each migration runs in its own connection so one failure cannot
+    abort the others. Uses IF NOT EXISTS so reruns are always safe."""
     migrations = [
-        "ALTER TABLE given_out_items ADD COLUMN date_given VARCHAR",
-        "ALTER TABLE given_out_items ADD COLUMN changed_by VARCHAR",
-        "ALTER TABLE given_out_items ADD COLUMN variety VARCHAR",
-        "ALTER TABLE inventory_items ADD COLUMN changed_by VARCHAR",
-        "ALTER TABLE inventory_items ADD COLUMN variety VARCHAR",
-        "ALTER TABLE transaction_log ADD COLUMN date_given VARCHAR",
-        "ALTER TABLE transaction_log ADD COLUMN changed_by VARCHAR",
-        "ALTER TABLE transaction_log ADD COLUMN created_at VARCHAR",
-        "ALTER TABLE transaction_log ADD COLUMN variety VARCHAR",
+        "ALTER TABLE given_out_items   ADD COLUMN IF NOT EXISTS date_given  VARCHAR",
+        "ALTER TABLE given_out_items   ADD COLUMN IF NOT EXISTS changed_by  VARCHAR",
+        "ALTER TABLE given_out_items   ADD COLUMN IF NOT EXISTS variety     VARCHAR",
+        "ALTER TABLE inventory_items   ADD COLUMN IF NOT EXISTS changed_by  VARCHAR",
+        "ALTER TABLE inventory_items   ADD COLUMN IF NOT EXISTS variety     VARCHAR",
+        "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS date_given  VARCHAR",
+        "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS changed_by  VARCHAR",
+        "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS created_at  VARCHAR",
+        "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS variety     VARCHAR",
     ]
-    with engine.connect() as conn:
-        for sql in migrations:
-            try:
+    for sql in migrations:
+        try:
+            with engine.connect() as conn:
                 conn.execute(text(sql))
                 conn.commit()
-            except Exception:
-                pass  # Column already exists — safe to ignore
-        # Verify variety column is readable — force a read to confirm
-        try:
-            conn.execute(text("SELECT variety FROM inventory_items LIMIT 1"))
-            conn.commit()
-            print("variety column confirmed on inventory_items", flush=True)
+                print(f"Migration OK: {sql.strip()}", flush=True)
         except Exception as e:
-            print(f"variety column MISSING on inventory_items: {e}", flush=True)
+            print(f"Migration skipped ({e}): {sql.strip()}", flush=True)
 
 run_migrations()
 
@@ -118,13 +114,23 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
     try:
         if search:
             rows = db.execute(text(
-                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, COALESCE(date_received, '') as date_received, COALESCE(changed_by, '') as changed_by FROM inventory_items WHERE LOWER(supply_name) LIKE LOWER(:s) ORDER BY id"
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name) LIKE LOWER(:s) ORDER BY id"
             ), {"s": f"%{search}%"}).mappings().all()
         else:
             rows = db.execute(text(
-                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, COALESCE(date_received, '') as date_received, COALESCE(changed_by, '') as changed_by FROM inventory_items ORDER BY id"
+                "SELECT * FROM inventory_items ORDER BY id"
             )).mappings().all()
-        return [dict(r) for r in rows]
+        return [
+            {
+                "id":            r["id"],
+                "supply_name":   r["supply_name"],
+                "variety":       r.get("variety") or "",
+                "quantity":      r["quantity"],
+                "date_received": r.get("date_received") or "",
+                "changed_by":    r.get("changed_by") or "",
+            }
+            for r in rows
+        ]
     except Exception as e:
         import traceback
         print("GET /api/inventory ERROR:", traceback.format_exc(), flush=True)
@@ -217,20 +223,26 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/given-out")
 def get_given_out(search: str = "", db: Session = Depends(get_db)):
-    try:
-        if search:
-            rows = db.execute(text(
-                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, who_received, COALESCE(date_given, '') as date_given, COALESCE(changed_by, '') as changed_by FROM given_out_items WHERE LOWER(supply_name) LIKE LOWER(:s) ORDER BY id"
-            ), {"s": f"%{search}%"}).mappings().all()
-        else:
-            rows = db.execute(text(
-                "SELECT id, supply_name, COALESCE(variety, '') as variety, quantity, who_received, COALESCE(date_given, '') as date_given, COALESCE(changed_by, '') as changed_by FROM given_out_items ORDER BY id"
-            )).mappings().all()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        import traceback
-        print("GET /api/given-out ERROR:", traceback.format_exc(), flush=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    if search:
+        rows = db.execute(text(
+            "SELECT * FROM given_out_items WHERE supply_name ILIKE :s ORDER BY id"
+        ), {"s": f"%{search}%"}).mappings().all()
+    else:
+        rows = db.execute(text(
+            "SELECT * FROM given_out_items ORDER BY id"
+        )).mappings().all()
+    return [
+            {
+                "id":           r["id"],
+                "supply_name":  r["supply_name"],
+                "variety":      r.get("variety") or "",
+                "quantity":     r["quantity"],
+                "who_received": r.get("who_received") or "",
+                "date_given":   r.get("date_given") or "",
+                "changed_by":   r.get("changed_by") or "",
+            }
+            for r in rows
+        ]
 
 
 @app.post("/api/given-out", status_code=201)
