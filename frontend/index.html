@@ -321,6 +321,14 @@ tbody tr:hover .row-tip{display:block}
       <div id="f-stock-hint" class="hint"></div>
     </div>
 
+    <!-- Given-out: variety dropdown (shown only when selected supply has varieties) -->
+    <div id="f-variety-select-wrap" style="display:none">
+      <label>Variety</label>
+      <select id="f-variety-select">
+        <option value="">— Select a variety —</option>
+      </select>
+    </div>
+
     <label>Quantity</label>
     <input type="number" id="f-qty" placeholder="e.g. 50" min="1"/>
 
@@ -589,6 +597,7 @@ function openModal(type){
   // Show/hide fields
   document.getElementById('f-name-wrap').style.display        = type==='current'?'':'none';
   document.getElementById('f-select-wrap').style.display      = type==='given'?'':'none';
+  document.getElementById('f-variety-select-wrap').style.display = 'none';
   document.getElementById('f-date-received-wrap').style.display = type==='current'?'':'none';
   document.getElementById('f-who-wrap').style.display         = type==='given'?'':'none';
   document.getElementById('f-date-given-wrap').style.display  = type==='given'?'':'none';
@@ -605,21 +614,24 @@ function openModal(type){
   document.getElementById('f-stock-hint').textContent='';
   document.getElementById('f-stock-hint').className='hint';
   document.getElementById('f-changed-by').value='';
+  document.getElementById('f-variety-select').innerHTML='<option value="">— Select a variety —</option>';
 
   if(type==='given'){
-    // Group by supply name, sum quantities
-    const grouped={};
+    // Build supply list: group by supply_name, then track varieties
+    const supplyMap={};
     currentItems.forEach(it=>{
       const k=it.supply_name.toLowerCase();
-      if(!grouped[k]) grouped[k]={name:it.supply_name,qty:0};
-      grouped[k].qty+=it.quantity;
+      if(!supplyMap[k]) supplyMap[k]={name:it.supply_name,totalQty:0,varieties:[]};
+      supplyMap[k].totalQty+=it.quantity;
+      if(it.variety) supplyMap[k].varieties.push({variety:it.variety,qty:it.quantity});
     });
     const sel=document.getElementById('f-select');
     sel.innerHTML='<option value="">— Select a supply —</option>';
-    Object.values(grouped).forEach(g=>{
+    Object.values(supplyMap).forEach(g=>{
       const o=document.createElement('option');
-      o.value=g.name; o.dataset.qty=g.qty;
-      o.textContent=g.name+' ('+g.qty+' available)';
+      o.value=g.name; o.dataset.qty=g.totalQty;
+      o.dataset.varieties=JSON.stringify(g.varieties);
+      o.textContent=g.name+' ('+g.totalQty+' available)';
       sel.appendChild(o);
     });
     sel.value='';
@@ -643,14 +655,42 @@ function onSupplyChange(){
   const sel=document.getElementById('f-select');
   const hint=document.getElementById('f-stock-hint');
   const qty=document.getElementById('f-qty');
+  const varietyWrap=document.getElementById('f-variety-select-wrap');
+  const varietySel=document.getElementById('f-variety-select');
+
   if(sel.value&&sel.options[sel.selectedIndex].dataset.qty!==undefined){
-    const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty);
+    const opt=sel.options[sel.selectedIndex];
+    const avail=parseInt(opt.dataset.qty);
     hint.textContent='✓ '+avail+' unit'+(avail!==1?'s':'')+' available';
     hint.className='hint ok';
-    qty.max=avail; qty.value=''; qty.focus();
+    qty.max=avail; qty.value='';
+
+    // Populate variety dropdown
+    let varieties=[];
+    try{ varieties=JSON.parse(opt.dataset.varieties||'[]'); }catch(e){}
+    varietySel.innerHTML='';
+    if(varieties.length>0){
+      // If only one variety, auto-select it; otherwise show "select" placeholder
+      if(varieties.length>1) varietySel.innerHTML='<option value="">— Select a variety —</option>';
+      varieties.forEach(v=>{
+        const o=document.createElement('option');
+        o.value=v.variety;
+        o.textContent=v.variety+' ('+v.qty+' available)';
+        varietySel.appendChild(o);
+      });
+      if(varieties.length===1) varietySel.value=varieties[0].variety;
+      varietyWrap.style.display='';
+    } else {
+      // No varieties for this supply — hide the dropdown
+      varietySel.innerHTML='<option value="">—</option>';
+      varietyWrap.style.display='none';
+    }
+    qty.focus();
   } else {
     hint.textContent=''; hint.className='hint';
     qty.removeAttribute('max');
+    varietySel.innerHTML='<option value="">— Select a variety —</option>';
+    varietyWrap.style.display='none';
   }
 }
 
@@ -676,10 +716,13 @@ async function saveItem(){
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
       if(qty>avail){ toast('Only '+avail+' available','error'); btn.disabled=false; btn.textContent='Save'; return; }
+      // Read variety from dropdown (if visible)
+      const varietySel=document.getElementById('f-variety-select');
+      const variety=varietySel.value||null;
       const who=document.getElementById('f-who').value.trim();
       const dateGiven=document.getElementById('f-date-given').value||null;
       const changedByG=document.getElementById('f-changed-by').value.trim();
-      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
+      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
       closeModal(); await loadTable('current'); await loadTable('given');
     }
