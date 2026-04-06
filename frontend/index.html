@@ -306,7 +306,7 @@ tbody tr:hover .row-tip{display:block}
       <input type="text" id="f-name" placeholder="e.g. Folder" autocomplete="off"/>
     </div>
 
-    <!-- Inventory: variety text input (optional) -->
+    <!-- Inventory: variety (optional) -->
     <div id="f-variety-wrap">
       <label>Variety <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — e.g. Long, Short, Blue)</span></label>
       <input type="text" id="f-variety" placeholder="e.g. Long / Short / Blue" autocomplete="off"/>
@@ -319,14 +319,6 @@ tbody tr:hover .row-tip{display:block}
         <option value="">— Select a supply —</option>
       </select>
       <div id="f-stock-hint" class="hint"></div>
-    </div>
-
-    <!-- Given-out: variety dropdown (appears after supply selected, only if varieties exist) -->
-    <div id="f-variety-select-wrap" style="display:none">
-      <label>Variety</label>
-      <select id="f-variety-select">
-        <option value="">— Select a variety —</option>
-      </select>
     </div>
 
     <label>Quantity</label>
@@ -595,13 +587,11 @@ function openModal(type){
   document.getElementById('modal-title').textContent = type==='current'?'Add to Current Inventory':'Give Out Supply';
 
   // Show/hide fields
-  document.getElementById('f-name-wrap').style.display          = type==='current'?'':'none';
-  document.getElementById('f-variety-wrap').style.display       = type==='current'?'':'none';
-  document.getElementById('f-select-wrap').style.display        = type==='given'?'':'none';
-  document.getElementById('f-variety-select-wrap').style.display= 'none';
+  document.getElementById('f-name-wrap').style.display        = type==='current'?'':'none';
+  document.getElementById('f-select-wrap').style.display      = type==='given'?'':'none';
   document.getElementById('f-date-received-wrap').style.display = type==='current'?'':'none';
-  document.getElementById('f-who-wrap').style.display           = type==='given'?'':'none';
-  document.getElementById('f-date-given-wrap').style.display    = type==='given'?'':'none';
+  document.getElementById('f-who-wrap').style.display         = type==='given'?'':'none';
+  document.getElementById('f-date-given-wrap').style.display  = type==='given'?'':'none';
 
   // Reset fields
   document.getElementById('f-name').value='';
@@ -615,24 +605,21 @@ function openModal(type){
   document.getElementById('f-stock-hint').textContent='';
   document.getElementById('f-stock-hint').className='hint';
   document.getElementById('f-changed-by').value='';
-  document.getElementById('f-variety-select').innerHTML='<option value="">— Select a variety —</option>';
 
   if(type==='given'){
-    // Group by supply name, track per-variety quantities
-    const supplyMap={};
+    // Group by supply name, sum quantities
+    const grouped={};
     currentItems.forEach(it=>{
       const k=it.supply_name.toLowerCase();
-      if(!supplyMap[k]) supplyMap[k]={name:it.supply_name,totalQty:0,varieties:[]};
-      supplyMap[k].totalQty+=it.quantity;
-      if(it.variety) supplyMap[k].varieties.push({variety:it.variety,qty:it.quantity});
+      if(!grouped[k]) grouped[k]={name:it.supply_name,qty:0};
+      grouped[k].qty+=it.quantity;
     });
     const sel=document.getElementById('f-select');
     sel.innerHTML='<option value="">— Select a supply —</option>';
-    Object.values(supplyMap).forEach(g=>{
+    Object.values(grouped).forEach(g=>{
       const o=document.createElement('option');
-      o.value=g.name; o.dataset.qty=g.totalQty;
-      o.dataset.varieties=JSON.stringify(g.varieties);
-      o.textContent=g.name+' ('+g.totalQty+' available)';
+      o.value=g.name; o.dataset.qty=g.qty;
+      o.textContent=g.name+' ('+g.qty+' available)';
       sel.appendChild(o);
     });
     sel.value='';
@@ -656,40 +643,14 @@ function onSupplyChange(){
   const sel=document.getElementById('f-select');
   const hint=document.getElementById('f-stock-hint');
   const qty=document.getElementById('f-qty');
-  const varietyWrap=document.getElementById('f-variety-select-wrap');
-  const varietySel=document.getElementById('f-variety-select');
-
   if(sel.value&&sel.options[sel.selectedIndex].dataset.qty!==undefined){
-    const opt=sel.options[sel.selectedIndex];
-    const avail=parseInt(opt.dataset.qty);
+    const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty);
     hint.textContent='✓ '+avail+' unit'+(avail!==1?'s':'')+' available';
     hint.className='hint ok';
-    qty.max=avail; qty.value='';
-
-    // Populate variety dropdown from stored data
-    let varieties=[];
-    try{ varieties=JSON.parse(opt.dataset.varieties||'[]'); }catch(e){}
-    varietySel.innerHTML='';
-    if(varieties.length>0){
-      if(varieties.length>1) varietySel.innerHTML='<option value="">— Select a variety —</option>';
-      varieties.forEach(v=>{
-        const o=document.createElement('option');
-        o.value=v.variety;
-        o.textContent=v.variety+' ('+v.qty+' available)';
-        varietySel.appendChild(o);
-      });
-      if(varieties.length===1) varietySel.value=varieties[0].variety;
-      varietyWrap.style.display='';
-    } else {
-      varietySel.innerHTML='<option value="">—</option>';
-      varietyWrap.style.display='none';
-    }
-    qty.focus();
+    qty.max=avail; qty.value=''; qty.focus();
   } else {
     hint.textContent=''; hint.className='hint';
     qty.removeAttribute('max');
-    varietySel.innerHTML='<option value="">— Select a variety —</option>';
-    varietyWrap.style.display='none';
   }
 }
 
@@ -715,12 +676,10 @@ async function saveItem(){
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
       if(qty>avail){ toast('Only '+avail+' available','error'); btn.disabled=false; btn.textContent='Save'; return; }
-      const varietySel=document.getElementById('f-variety-select');
-      const variety=varietySel.value||null;
       const who=document.getElementById('f-who').value.trim();
       const dateGiven=document.getElementById('f-date-given').value||null;
       const changedByG=document.getElementById('f-changed-by').value.trim();
-      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
+      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
       closeModal(); await loadTable('current'); await loadTable('given');
     }
@@ -959,12 +918,15 @@ function renderSummaryTable(){
     const monthFilter=document.getElementById('month-filter').value;
     if(monthFilter) rows=rows.filter(r=>r.isoDate&&r.isoDate.slice(0,7)===monthFilter);
 
-    // Sort by transaction creation time (FIFO — first transaction first)
+    // Sort chronologically by the supply date (date received / date given), then by log ID for ties
     rows.sort((a,b)=>{
-      if(!a.createdAt && !b.createdAt) return a.logId - b.logId;
-      if(!a.createdAt) return 1;
-      if(!b.createdAt) return -1;
-      return a.createdAt.localeCompare(b.createdAt);
+      const da=a.isoDate||'';
+      const db=b.isoDate||'';
+      if(!da && !db) return a.logId - b.logId;
+      if(!da) return 1;
+      if(!db) return -1;
+      if(da!==db) return da.localeCompare(db);
+      return a.logId - b.logId;
     });
     if(search) rows=rows.filter(r=>
       (r.name||'').toLowerCase().includes(search)||
@@ -1020,7 +982,7 @@ function exportPDF(){
   if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:['Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
-  pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
+  pdfRowsRaw.sort((a,b)=>{ const da=a.iso||'',db=b.iso||''; if(!da&&!db)return a.id-b.id; if(!da)return 1; if(!db)return -1; if(da!==db)return da.localeCompare(db); return a.id-b.id; });
   pdfRowsRaw.forEach(r=>rows.push(r.row));
   if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
   const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
