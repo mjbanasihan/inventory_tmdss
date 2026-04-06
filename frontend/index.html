@@ -493,7 +493,7 @@ async function loadTable(type, silent=false){
       console.log('given-out sample:', items.slice(0,2).map(x=>({id:x.id,name:x.supply_name,variety:x.variety})));
     }
     renderTable(type);
-  }catch(e){ if(!silent) toast('Failed to load data','error'); }
+  }catch(e){ console.error('loadTable error ('+type+'):', e); if(!silent) toast('Error: '+e.message,'error'); }
   finally{ if(rb) rb.classList.remove('spinning'); }
 }
 
@@ -736,9 +736,16 @@ async function saveInvEdit(){
   if(qty<=0){ toast('Quantity must be > 0','error'); return; }
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
-    await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null})});
+    const updated=await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null})});
+    console.log('saveInvEdit — variety sent:',variety,'response variety:',updated?.variety);
+    // Patch local cache with server response (use server value for variety, fall back to what we sent)
+    const idx=currentItems.findIndex(x=>x.id===id);
+    const fresh={...(idx>=0?currentItems[idx]:{}), ...(updated||{}), supply_name:name, variety:(updated&&'variety' in updated?updated.variety:variety), quantity:qty, date_received:date};
+    if(idx>=0) currentItems[idx]=fresh; else currentItems.push(fresh);
     toast('Item updated!','success');
     closeInvEdit();
+    renderTable('current');
+    // Full reload to confirm server state (won't re-render until data arrives)
     await loadTable('current');
   }catch(e){ toast('Save failed: '+e.message,'error'); }
   finally{ btn.disabled=false; btn.textContent='Save Changes'; }
@@ -808,7 +815,7 @@ async function saveEdit(){
     console.log('PUT payload:', JSON.stringify(payload));
     await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify(payload)});
     toast('Record updated!','success');
-    closeEditModal(); await loadTable('current'); await loadTable('given');
+    closeEditModal(); loadTable('current'); loadTable('given');
   }catch(e){
     console.error('saveEdit error:', e);
     toast('Save failed: '+e.message,'error');
