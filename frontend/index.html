@@ -708,7 +708,7 @@ function checkQtyLimit(){
   const avail=parseInt(sel.options[sel.selectedIndex]?.dataset?.qty||0);
   const entered=parseInt(qtyEl.value)||0;
   if(entered>avail){
-    hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available';
+    hint.textContent='Insufficient amount of units';
     hint.className='hint err';
     qtyEl.style.borderColor='var(--red)';
   } else {
@@ -741,7 +741,7 @@ async function saveItem(){
       const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
       if(qty>avail){
         const hint=document.getElementById('f-qty-hint');
-        hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available';
+        hint.textContent='Insufficient amount of units';
         hint.className='hint err';
         document.getElementById('f-qty').style.borderColor='var(--red)';
         btn.disabled=false; btn.textContent='Save'; return;
@@ -834,7 +834,7 @@ function checkEditQtyLimit(){
   const avail=(inv?inv.quantity:0)+egOrigQty;
   const entered=parseInt(qtyEl.value)||0;
   if(entered>avail){
-    hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available ('+egOrigQty+' currently given + '+(inv?inv.quantity:0)+' in stock)';
+    hint.textContent='Insufficient amount of units';
     hint.className='hint err';
     qtyEl.style.borderColor='var(--red)';
   } else {
@@ -899,7 +899,7 @@ async function saveEdit(){
     const avail=inv?inv.quantity:0;
     if(diff>avail){
       const hint=document.getElementById('eg-hint');
-      hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available in inventory';
+      hint.textContent='Insufficient amount of units';
       hint.className='hint err';
       document.getElementById('eg-qty').style.borderColor='var(--red)';
       return;
