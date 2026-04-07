@@ -195,7 +195,7 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
             db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
                 {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
         db.commit()
-        write_log(db, "inventory_edited", item.supply_name, item.quantity,
+        write_log(db, "inventory", item.supply_name, item.quantity,
                   detail=item.date_received, changed_by=item.changed_by, variety=item.variety)
         db.commit()
         result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
@@ -361,7 +361,7 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
         db.commit()
 
         # Log the edit
-        write_log(db, "given_out_edited", item.supply_name, item.quantity,
+        write_log(db, "given_out", item.supply_name, item.quantity,
                   detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by)
         db.commit()
 
@@ -447,15 +447,15 @@ def get_summary(db: Session = Depends(get_db)):
 
         # Backfill date_given from given_out_items where missing in log
         for l in logs:
-            if l.get("txn_type") in ("given_out", "given_out_deleted") and not l.get("date_given"):
+            if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted") and not l.get("date_given"):
                 sn  = (l.get("supply_name") or "").lower()
                 who = (l.get("detail") or "").lower()  # detail = who_received in log
                 dg  = gi_map_precise.get((sn, who)) or gi_map_supply.get(sn)
                 if dg:
                     l["date_given"] = dg
 
-        inv_logs = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_deleted")]
-        giv_logs = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_deleted")]
+        inv_logs = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_edited", "inventory_deleted")]
+        giv_logs = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted")]
 
         def safe_log(l):
             return {
