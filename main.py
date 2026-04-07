@@ -141,7 +141,7 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
 def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
     import traceback
     try:
-        # Match on both supply_name AND variety so different varieties stay as separate rows
+        # Match on (supply_name, variety) — different varieties stay as separate rows
         if HAS_VARIETY and item.variety:
             existing = db.execute(text(
                 "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
@@ -255,7 +255,7 @@ def get_given_out(search: str = "", db: Session = Depends(get_db)):
 def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depends(get_db)):
     import traceback
     try:
-        # Check available stock — match on (supply_name, variety) so different varieties stay separate
+        # Look up by (supply_name, variety) so different varieties are kept separate
         if item.variety:
             inv = db.execute(text(
                 "SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
@@ -269,7 +269,7 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
         if inv["quantity"] < item.quantity:
             raise HTTPException(status_code=400, detail=f"Only {inv['quantity']} unit(s) available")
 
-        # Use the matched inventory row's variety
+        # Use the matched row's variety
         variety = inv.get("variety") or item.variety or None
 
         # Deduct from inventory
@@ -326,17 +326,17 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
 
         qty_diff = item.quantity - current["quantity"]
 
-        # Helper: look up inventory row by (supply_name, variety) for this record
+        # Use the variety from the existing given-out row for inventory lookup
         row_variety = current.get("variety") or ""
         if row_variety:
-            inv_lookup_sql = "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
-            inv_lookup_p   = {"sn": item.supply_name, "v": row_variety}
+            inv_sql = "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND LOWER(COALESCE(variety,''))=LOWER(:v) LIMIT 1"
+            inv_p   = {"sn": item.supply_name, "v": row_variety}
         else:
-            inv_lookup_sql = "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND (variety IS NULL OR variety='') LIMIT 1"
-            inv_lookup_p   = {"sn": item.supply_name}
+            inv_sql = "SELECT id, quantity FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) AND (variety IS NULL OR variety='') LIMIT 1"
+            inv_p   = {"sn": item.supply_name}
 
         if qty_diff > 0:
-            inv = db.execute(text(inv_lookup_sql), inv_lookup_p).mappings().first()
+            inv = db.execute(text(inv_sql), inv_p).mappings().first()
             avail = inv["quantity"] if inv else 0
             if avail < qty_diff:
                 raise HTTPException(status_code=400, detail=f"Only {avail} unit(s) available in inventory")
@@ -347,7 +347,7 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
                 db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"), {"q": new_inv_qty, "id": inv["id"]})
 
         elif qty_diff < 0:
-            inv = db.execute(text(inv_lookup_sql), inv_lookup_p).mappings().first()
+            inv = db.execute(text(inv_sql), inv_p).mappings().first()
             if inv:
                 db.execute(text("UPDATE inventory_items SET quantity=:q WHERE id=:id"),
                            {"q": inv["quantity"] + abs(qty_diff), "id": inv["id"]})
@@ -399,7 +399,7 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    # Restore quantity to the correct inventory row (match supply_name + variety)
+    # Restore quantity to the correct variety's inventory row
     row_variety = row.get("variety") or ""
     if row_variety:
         inv = db.execute(text(
