@@ -183,7 +183,7 @@ tbody tr:hover .row-tip{display:block}
 
 <header>
   <h1>TSD-TMDSS Inventory</h1>
-  <button class="header-link" onclick="showSummary()">Inventory Summary</button>
+  <button class="header-link" id="btn-summary" onclick="showSummary()">Inventory Summary</button>
 </header>
 
 <!-- MAIN PAGE -->
@@ -927,11 +927,13 @@ document.getElementById('overlay-edit').addEventListener('click',function(e){ if
 function showSummary(){
   document.getElementById('main-page').classList.add('hidden');
   document.getElementById('summary-page').classList.add('active');
+  document.getElementById('btn-summary').style.display='none';
   loadSummary();
 }
 function hideSummary(){
   document.getElementById('main-page').classList.remove('hidden');
   document.getElementById('summary-page').classList.remove('active');
+  document.getElementById('btn-summary').style.display='';
 }
 function setSummaryFilter(btn,f){
   summaryFilter=f;
