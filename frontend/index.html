@@ -329,8 +329,11 @@ tbody tr:hover .row-tip{display:block}
       </select>
     </div>
 
-    <label>Quantity</label>
-    <input type="number" id="f-qty" placeholder="e.g. 50" min="1"/>
+    <div id="f-qty-wrap">
+      <label>Quantity</label>
+      <input type="number" id="f-qty" placeholder="e.g. 50" min="1" oninput="checkQtyLimit()"/>
+      <div id="f-qty-hint" class="hint"></div>
+    </div>
 
     <!-- Inventory: date received -->
     <div id="f-date-received-wrap">
@@ -368,7 +371,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
     </div>
 
-    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — recorded as editor)</span></label>
+    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(required — recorded as editor)</span></label>
     <input type="text" id="f-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
 
     <div class="modal-actions">
@@ -417,7 +420,7 @@ tbody tr:hover .row-tip{display:block}
     <label style="margin-top:12px">Variety</label>
     <input type="text" id="eg-variety" readonly style="background:#f0f0f5;color:var(--muted);cursor:default" placeholder="—"/>
     <label style="margin-top:12px">Quantity</label>
-    <input type="number" id="eg-qty" min="1" placeholder="Quantity"/>
+    <input type="number" id="eg-qty" min="1" placeholder="Quantity" oninput="checkEditQtyLimit()"/>
     <div id="eg-hint" class="hint"></div>
     <label>Who Received</label>
     <input type="text" id="eg-who" placeholder="e.g. Juan dela Cruz" autocomplete="off"/>
@@ -615,6 +618,8 @@ function openModal(type){
   document.getElementById('f-date-given').value='';
   document.getElementById('f-stock-hint').textContent='';
   document.getElementById('f-stock-hint').className='hint';
+  document.getElementById('f-qty-hint').textContent='';
+  document.getElementById('f-qty-hint').className='hint';
   document.getElementById('f-changed-by').value='';
   document.getElementById('f-variety-select').innerHTML='<option value="">— Select a variety —</option>';
 
@@ -694,6 +699,25 @@ function onSupplyChange(){
   }
 }
 
+function checkQtyLimit(){
+  if(activeTable!=='given') return;
+  const sel=document.getElementById('f-select');
+  const qtyEl=document.getElementById('f-qty');
+  const hint=document.getElementById('f-qty-hint');
+  if(!sel||!sel.value) return;
+  const avail=parseInt(sel.options[sel.selectedIndex]?.dataset?.qty||0);
+  const entered=parseInt(qtyEl.value)||0;
+  if(entered>avail){
+    hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available';
+    hint.className='hint err';
+    qtyEl.style.borderColor='var(--red)';
+  } else {
+    hint.textContent='';
+    hint.className='hint';
+    qtyEl.style.borderColor='';
+  }
+}
+
 async function saveItem(){
   const qty=parseInt(document.getElementById('f-qty').value)||0;
   const btn=document.getElementById('btn-save');
@@ -715,7 +739,13 @@ async function saveItem(){
       if(!supplyName){ toast('Select a supply','error'); btn.disabled=false; btn.textContent='Save'; return; }
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
-      if(qty>avail){ toast('Only '+avail+' available','error'); btn.disabled=false; btn.textContent='Save'; return; }
+      if(qty>avail){
+        const hint=document.getElementById('f-qty-hint');
+        hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available';
+        hint.className='hint err';
+        document.getElementById('f-qty').style.borderColor='var(--red)';
+        btn.disabled=false; btn.textContent='Save'; return;
+      }
       const variety=document.getElementById('f-variety-select').value||null;
       const who=document.getElementById('f-who').value.trim();
       const dateGiven=document.getElementById('f-date-given').value||null;
@@ -797,6 +827,23 @@ async function saveInvEdit(){
 document.getElementById('overlay-inv-edit').addEventListener('click',function(e){ if(e.target===this) closeInvEdit(); });
 
 // ── EDIT GIVEN-OUT MODAL ─────────────────────────────────────────────────────
+function checkEditQtyLimit(){
+  const qtyEl=document.getElementById('eg-qty');
+  const hint=document.getElementById('eg-hint');
+  const inv=currentItems.find(x=>x.supply_name===egOrigSupply);
+  const avail=(inv?inv.quantity:0)+egOrigQty;
+  const entered=parseInt(qtyEl.value)||0;
+  if(entered>avail){
+    hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available ('+egOrigQty+' currently given + '+(inv?inv.quantity:0)+' in stock)';
+    hint.className='hint err';
+    qtyEl.style.borderColor='var(--red)';
+  } else {
+    hint.textContent='';
+    hint.className='hint';
+    qtyEl.style.borderColor='';
+  }
+}
+
 function openEditModal(id){
   try{
   const it=givenItems.find(x=>x.id===id); if(!it){ toast('Item not found','error'); return; }
@@ -850,7 +897,13 @@ async function saveEdit(){
   if(diff>0){
     const inv=currentItems.find(x=>x.supply_name===egOrigSupply);
     const avail=inv?inv.quantity:0;
-    if(diff>avail){ toast('Only '+avail+' available in inventory','error'); return; }
+    if(diff>avail){
+      const hint=document.getElementById('eg-hint');
+      hint.textContent='⚠ Only '+avail+' unit'+(avail!==1?'s':'')+' available in inventory';
+      hint.className='hint err';
+      document.getElementById('eg-qty').style.borderColor='var(--red)';
+      return;
+    }
   }
 
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
