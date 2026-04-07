@@ -154,6 +154,7 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
 .badge-inv{background:#d4f0e0;color:#1a6b38}
 .badge-giv{background:#fde8e8;color:#a93226}
 .badge-inv_del,.badge-giv_del{background:#fdf3e8;color:#a96b1a}
+.badge-inv_edit,.badge-giv_edit{background:#e8f0fd;color:#1a3fa9}
 .stock-ok{color:var(--green)}
 .stock-err{color:var(--red)}
 
@@ -987,7 +988,8 @@ function renderSummaryTable(){
       (summaryData.inventory.items||[]).forEach(it=>{
         const isoDate=(it.detail||'');
         const isDel = it.txn_type==='inventory_deleted';
-        rows.push({type: isDel?'inv_del':'inv', name:it.supply_name||'', qty:it.quantity||0,
+        const isEdit = it.txn_type==='inventory_edited';
+        rows.push({type: isDel?'inv_del':isEdit?'inv_edit':'inv', name:it.supply_name||'', qty:it.quantity||0,
           variety: (it.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
@@ -1000,7 +1002,8 @@ function renderSummaryTable(){
       (summaryData.given_out.items||[]).forEach(it=>{
         const isoDate=(it.date_given||'');
         const isDel = it.txn_type==='given_out_deleted';
-        rows.push({type: isDel?'giv_del':'giv', name:it.supply_name||'', qty:it.quantity||0,
+        const isEdit = it.txn_type==='given_out_edited';
+        rows.push({type: isDel?'giv_del':isEdit?'giv_edit':'giv', name:it.supply_name||'', qty:it.quantity||0,
           variety: (it.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
@@ -1032,7 +1035,7 @@ function renderSummaryTable(){
     tbody.innerHTML=rows.map((r,i)=>`
       <tr>
         <td>${i+1}</td>
-        <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':r.type==='giv'?'Given Out':r.type==='inv_del'?'Deleted':'Deleted'}</span></td>
+        <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':r.type==='giv'?'Given Out':r.type==='inv_del'||r.type==='giv_del'?'Deleted':r.type==='inv_edit'||r.type==='giv_edit'?'Edited':'Received'}</span></td>
         <td>${esc(r.name)}</td>
         <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
@@ -1069,8 +1072,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:['Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}); });
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:['Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}); });
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}); });
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
   pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
@@ -1121,7 +1124,11 @@ function exportPDF(){
   doc.setDrawColor(220,220,220); doc.line(margin,fy,pageW-margin,fy);
   doc.setTextColor(170,170,170); doc.setFontSize(7.5);
   doc.text('TSD-TMDSS Inventory System · '+now,pageW/2,fy+5,{align:'center'});
-  doc.save('TSD-TMDSS_Inventory_'+new Date().toISOString().slice(0,10)+'.pdf');
+  const _d=new Date();
+  const _dd=String(_d.getDate()).padStart(2,'0');
+  const _dm=String(_d.getMonth()+1).padStart(2,'0');
+  const _dy=_d.getFullYear();
+  doc.save('TSD-TMDSS_Inventory_'+_dd+'-'+_dm+'-'+_dy+'.pdf');
   toast('PDF downloaded!','success');
 }
 
