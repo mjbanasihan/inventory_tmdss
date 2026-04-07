@@ -687,6 +687,7 @@ function onSupplyChange(){
       });
       if(varieties.length===1) varietySel.value=varieties[0].variety;
       varietyWrap.style.display='';
+      varietySel.onchange=()=>checkQtyLimit();
     } else {
       varietySel.innerHTML='<option value="">—</option>';
       varietyWrap.style.display='none';
@@ -700,13 +701,29 @@ function onSupplyChange(){
   }
 }
 
+function getAvailQty(){
+  const sel=document.getElementById('f-select');
+  if(!sel||!sel.value) return 0;
+  const opt=sel.options[sel.selectedIndex];
+  const varietySel=document.getElementById('f-variety-select');
+  const selectedVariety=varietySel&&varietySel.style.display!=='none'?varietySel.value:'';
+  if(selectedVariety){
+    try{
+      const varieties=JSON.parse(opt.dataset.varieties||'[]');
+      const match=varieties.find(v=>v.variety===selectedVariety);
+      if(match) return match.qty;
+    }catch(e){}
+  }
+  return parseInt(opt.dataset.qty||0);
+}
+
 function checkQtyLimit(){
   if(activeTable!=='given') return;
   const sel=document.getElementById('f-select');
   const qtyEl=document.getElementById('f-qty');
   const hint=document.getElementById('f-qty-hint');
   if(!sel||!sel.value) return;
-  const avail=parseInt(sel.options[sel.selectedIndex]?.dataset?.qty||0);
+  const avail=getAvailQty();
   const entered=parseInt(qtyEl.value)||0;
   if(entered>avail){
     hint.textContent='Insufficient amount of units';
@@ -739,7 +756,7 @@ async function saveItem(){
       const supplyName=sel.value;
       if(!supplyName){ toast('Select a supply','error'); btn.disabled=false; btn.textContent='Save'; return; }
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
-      const avail=parseInt(sel.options[sel.selectedIndex].dataset.qty||0);
+      const avail=getAvailQty();
       if(qty>avail){
         const hint=document.getElementById('f-qty-hint');
         hint.textContent='Insufficient amount of units';
