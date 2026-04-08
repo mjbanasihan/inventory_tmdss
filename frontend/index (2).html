@@ -167,6 +167,7 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
   .col-edited-by{display:none!important}
   @page{margin:18mm}
 }
+.col-edited-by-hidden .col-edited-by{display:none!important}
 .supply-cell{position:relative}
 .row-tip{display:none;position:absolute;bottom:calc(100% + 4px);left:12px;background:#1a1a2e;color:#fff;font-size:.72rem;padding:5px 10px;border-radius:6px;white-space:nowrap;z-index:50;font-weight:600;letter-spacing:.02em;pointer-events:none}
 .row-tip::after{content:'';position:absolute;top:100%;left:12px;border:5px solid transparent;border-top-color:#1a1a2e}
@@ -267,6 +268,10 @@ tbody tr:hover .row-tip{display:block}
       <span class="search-icon"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="#888" stroke-width="2"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#888" stroke-width="2" stroke-linecap="round"/></svg></span>
     </div>
     <div class="export-btns">
+      <button class="btn-export" id="btn-toggle-editedby" onclick="toggleEditedBy()" title="Show/hide Edited By column">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" stroke="currentColor" stroke-width="1.7"/></svg>
+        Edited By
+      </button>
       <button class="btn-export" onclick="printSummary()">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><rect x="3" y="7" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="M6 7V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v3" stroke="currentColor" stroke-width="1.7"/><line x1="6" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         Print
@@ -309,7 +314,7 @@ tbody tr:hover .row-tip{display:block}
 
     <!-- Inventory: variety text input (optional) -->
     <div id="f-variety-wrap">
-      <label>Variety <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — e.g. Long, Short, Blue)</span></label>
+      <label>Variety <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional)</span></label>
       <input type="text" id="f-variety" placeholder="e.g. Long / Short / Blue" autocomplete="off"/>
     </div>
 
@@ -372,7 +377,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
     </div>
 
-    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(required — recorded as editor)</span></label>
+    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — recorded as editor)</span></label>
     <input type="text" id="f-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
 
     <div class="modal-actions">
@@ -449,6 +454,24 @@ tbody tr:hover .row-tip{display:block}
 let currentItems = [], givenItems = [], activeTable = 'current';
 let summaryData = null, summaryFilter = 'all';
 let egOrigQty = 0, egOrigSupply = '';
+let showEditedBy = false;
+
+function toggleEditedBy(){
+  showEditedBy = !showEditedBy;
+  const btn = document.getElementById('btn-toggle-editedby');
+  const sumCard = document.querySelector('.sum-card');
+  if(showEditedBy){
+    sumCard.classList.remove('col-edited-by-hidden');
+    btn.style.background = 'var(--navy)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--navy)';
+  } else {
+    sumCard.classList.add('col-edited-by-hidden');
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+  }
+}
 
 // Calendar state: { year, month, selected(ISO), displayEl, hiddenEl, dropEl, labelEl, daysEl }
 const calState = {};
@@ -945,6 +968,8 @@ function showSummary(){
   document.getElementById('main-page').classList.add('hidden');
   document.getElementById('summary-page').classList.add('active');
   document.getElementById('btn-summary').style.display='none';
+  const sumCard = document.querySelector('.sum-card');
+  if(!showEditedBy) sumCard.classList.add('col-edited-by-hidden');
   loadSummary();
 }
 function hideSummary(){
@@ -1091,8 +1116,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}); });
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}); });
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—',(it.changed_by||'')]}); });
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—'),(it.changed_by||'')]}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
   pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
@@ -1124,8 +1149,8 @@ function exportPDF(){
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
-    head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient']],
-    body: rows.map((r,i)=>[i+1,...r]),
+    head: [showEditedBy ? ['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient','Edited By'] : ['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient']],
+    body: rows.map((r,i)=> showEditedBy ? [i+1,...r] : [i+1,...r.slice(0,6)]),
     styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
     headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
     alternateRowStyles: {fillColor:[244,244,248]},
