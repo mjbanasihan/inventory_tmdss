@@ -52,7 +52,7 @@ header h1{font-size:1.4rem;font-weight:700;letter-spacing:.04em;text-transform:u
 .search-wrap input{border:1.5px solid var(--border);border-radius:20px;padding:5px 32px 5px 13px;font-size:.78rem;font-family:inherit;color:var(--text);background:#f7f7f9;outline:none;width:148px;transition:border-color .18s}
 .search-wrap input:focus{border-color:var(--navy)}
 .search-wrap input::placeholder{color:#aaa}
-.search-icon{position:absolute;right:10px;color:#888;pointer-events:none;display:flex}
+.search-icon{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#888;pointer-events:none;display:flex}
 
 /* BUTTONS */
 .btn-edit{display:flex;align-items:center;gap:6px;background:var(--purple);color:#fff;border:none;border-radius:20px;padding:6px 16px;font-size:.80rem;font-family:inherit;font-weight:600;cursor:pointer;transition:background .16s}
@@ -309,7 +309,7 @@ tbody tr:hover .row-tip{display:block}
 
     <!-- Inventory: variety text input (optional) -->
     <div id="f-variety-wrap">
-      <label>Variety <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional)</span></label>
+      <label>Variety <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — e.g. Long, Short, Blue)</span></label>
       <input type="text" id="f-variety" placeholder="e.g. Long / Short / Blue" autocomplete="off"/>
     </div>
 
@@ -372,7 +372,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
     </div>
 
-    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — recorded as editor)</span></label>
+    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(required — recorded as editor)</span></label>
     <input type="text" id="f-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
 
     <div class="modal-actions">
