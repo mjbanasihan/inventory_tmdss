@@ -6,6 +6,7 @@ class InventoryItem(Base):
     __tablename__ = "inventory_items"
 
     id            = Column(Integer, primary_key=True, index=True)
+    po_number     = Column(String, nullable=True)
     supply_name   = Column(String, nullable=False)
     variety       = Column(String, nullable=True)
     quantity      = Column(Integer, nullable=False, default=0)
@@ -17,6 +18,7 @@ class GivenOutItem(Base):
     __tablename__ = "given_out_items"
 
     id           = Column(Integer, primary_key=True, index=True)
+    po_number    = Column(String, nullable=True)
     supply_name  = Column(String, nullable=False)
     variety      = Column(String, nullable=True)
     quantity     = Column(Integer, nullable=False, default=0)
@@ -30,6 +32,7 @@ class TransactionLog(Base):
     __tablename__ = "transaction_log"
 
     id           = Column(Integer, primary_key=True, index=True)
+    po_number    = Column(String, nullable=True)
     txn_type     = Column(String, nullable=False)
     supply_name  = Column(String, nullable=False)
     variety      = Column(String, nullable=True)

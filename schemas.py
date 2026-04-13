@@ -5,6 +5,7 @@ from typing import Optional
 class InventoryItemCreate(BaseModel):
     supply_name:   str
     quantity:      int
+    po_number:     Optional[str] = None
     variety:       Optional[str] = None
     date_received: Optional[str] = None
     changed_by:    Optional[str] = None
@@ -18,6 +19,7 @@ class InventoryItem(InventoryItemCreate):
 class GivenOutItemCreate(BaseModel):
     supply_name:  str
     quantity:     int
+    po_number:    Optional[str] = None
     variety:      Optional[str] = None
     who_received: Optional[str] = None
     date_given:   Optional[str] = None
@@ -33,6 +35,7 @@ class GivenOutItem(GivenOutItemCreate):
 
 class TransactionLog(BaseModel):
     id:          int
+    po_number:   Optional[str] = None
     txn_type:    str
     supply_name: str
     quantity:    int
