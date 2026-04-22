@@ -124,14 +124,7 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
     try:
         if search:
             rows = db.execute(text(
-                "SELECT * FROM inventory_items WHERE "
-                "LOWER(supply_name) LIKE LOWER(:s) OR "
-                "LOWER(COALESCE(variety,'')) LIKE LOWER(:s) OR "
-                "LOWER(COALESCE(po_number,'')) LIKE LOWER(:s) OR "
-                "LOWER(COALESCE(date_received,'')) LIKE LOWER(:s) OR "
-                "LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''), 'YYYY-MM-DD'), 'DD Month YYYY')) LIKE LOWER(:s) OR "
-                "LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''), 'YYYY-MM-DD'), 'DD Mon YYYY')) LIKE LOWER(:s) "
-                "ORDER BY date_received DESC NULLS LAST, id DESC"
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name) LIKE LOWER(:s) OR LOWER(COALESCE(variety,''::varchar)) LIKE LOWER(:s) OR LOWER(COALESCE(po_number,''::varchar)) LIKE LOWER(:s) OR LOWER(COALESCE(date_received,''::varchar)) LIKE LOWER(:s) OR LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''), 'YYYY-MM-DD'), 'DD Month YYYY')) LIKE LOWER(:s) OR LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''), 'YYYY-MM-DD'), 'DD Mon YYYY')) LIKE LOWER(:s) ORDER BY date_received DESC NULLS LAST, id DESC"
             ), {"s": f"%{search}%"}).mappings().all()
         else:
             rows = db.execute(text(
@@ -249,14 +242,7 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
 def get_given_out(search: str = "", db: Session = Depends(get_db)):
     if search:
         rows = db.execute(text(
-            "SELECT * FROM given_out_items WHERE "
-            "supply_name ILIKE :s OR "
-            "COALESCE(variety,'') ILIKE :s OR "
-            "COALESCE(po_number,'') ILIKE :s OR "
-            "COALESCE(date_given,'') ILIKE :s OR "
-            "TO_CHAR(TO_DATE(NULLIF(date_given,''), 'YYYY-MM-DD'), 'DD Month YYYY') ILIKE :s OR "
-            "TO_CHAR(TO_DATE(NULLIF(date_given,''), 'YYYY-MM-DD'), 'DD Mon YYYY') ILIKE :s "
-            "ORDER BY id"
+            "SELECT * FROM given_out_items WHERE supply_name ILIKE :s OR COALESCE(variety,''::varchar) ILIKE :s OR COALESCE(po_number,''::varchar) ILIKE :s OR COALESCE(date_given,''::varchar) ILIKE :s OR TO_CHAR(TO_DATE(NULLIF(date_given,''), 'YYYY-MM-DD'), 'DD Month YYYY') ILIKE :s OR TO_CHAR(TO_DATE(NULLIF(date_given,''), 'YYYY-MM-DD'), 'DD Mon YYYY') ILIKE :s ORDER BY id"
         ), {"s": f"%{search}%"}).mappings().all()
     else:
         rows = db.execute(text(
