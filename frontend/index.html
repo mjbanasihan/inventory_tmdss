@@ -672,11 +672,7 @@ function openModal(type){
   document.getElementById('f-po').value='';
   document.getElementById('f-variety-select').innerHTML='<option value="">— Select a variety —</option>';
   const poInput=document.getElementById('f-po');
-  if(type==='given'){
-    poInput.readOnly=true;poInput.style.background='#f0f0f5';poInput.style.color='var(--muted)';poInput.style.cursor='default';poInput.placeholder='Auto-filled from inventory';
-  } else {
-    poInput.readOnly=false;poInput.style.background='';poInput.style.color='';poInput.style.cursor='';poInput.placeholder='e.g. PO-001';
-  }
+  if(type==='given'){poInput.readOnly=true;poInput.style.background='#f0f0f5';poInput.style.color='var(--muted)';poInput.style.cursor='default';poInput.placeholder='Auto-filled from inventory';}else{poInput.readOnly=false;poInput.style.background='';poInput.style.color='';poInput.style.cursor='';poInput.placeholder='e.g. PO-001';}
 
   if(type==='given'){
     const supplyMap={};
