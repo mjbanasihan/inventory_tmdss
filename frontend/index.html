@@ -164,9 +164,14 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
   #summary-page{display:block!important;padding:0}
   .table-wrap{max-height:none!important;overflow:visible!important}
   .del-btn,.row-edit-btn{display:none}
+  .col-edited-by{display:none!important}
   @page{margin:18mm}
 }
+.col-edited-by-hidden .col-edited-by{display:none!important}
 .supply-cell{position:relative}
+.row-tip{display:none;position:absolute;bottom:calc(100% + 4px);left:12px;background:#1a1a2e;color:#fff;font-size:.72rem;padding:5px 10px;border-radius:6px;white-space:nowrap;z-index:50;font-weight:600;letter-spacing:.02em;pointer-events:none}
+.row-tip::after{content:'';position:absolute;top:100%;left:12px;border:5px solid transparent;border-top-color:#1a1a2e}
+tbody tr:hover .row-tip{display:block}
 
 @media(max-width:700px){
   .main-grid{grid-template-columns:1fr;padding:14px 10px}
@@ -263,7 +268,10 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
       <span class="search-icon"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="#888" stroke-width="2"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#888" stroke-width="2" stroke-linecap="round"/></svg></span>
     </div>
     <div class="export-btns">
-
+      <button class="btn-export" id="btn-toggle-editedby" onclick="toggleEditedBy()" title="Show/hide Edited By column">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" stroke="currentColor" stroke-width="1.7"/></svg>
+        Edited By
+      </button>
       <button class="btn-export" onclick="printSummary()">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><rect x="3" y="7" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="M6 7V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v3" stroke="currentColor" stroke-width="1.7"/><line x1="6" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         Print
@@ -286,7 +294,7 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th></th></tr></thead>
+        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th class="col-edited-by">Edited By</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -375,8 +383,6 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
       </div>
     </div>
 
-    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — recorded as editor)</span></label>
-    <input type="text" id="f-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
 
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -457,6 +463,24 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
 let currentItems = [], givenItems = [], activeTable = 'current';
 let summaryData = null, summaryFilter = 'all';
 let egOrigQty = 0, egOrigSupply = '';
+let showEditedBy = false;
+
+function toggleEditedBy(){
+  showEditedBy = !showEditedBy;
+  const btn = document.getElementById('btn-toggle-editedby');
+  const sumCard = document.querySelector('.sum-card');
+  if(showEditedBy){
+    sumCard.classList.remove('col-edited-by-hidden');
+    btn.style.background = 'var(--navy)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--navy)';
+  } else {
+    sumCard.classList.add('col-edited-by-hidden');
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+  }
+}
 
 // Calendar state: { year, month, selected(ISO), displayEl, hiddenEl, dropEl, labelEl, daysEl }
 const calState = {};
@@ -530,9 +554,13 @@ function renderTable(type){
     if(i<items.length){
       const it=items[i];
       if(type==='current'){
-        tr.innerHTML=`<td class="supply-cell">${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openInvEdit(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
+        const invTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.style.position='relative';
+        tr.innerHTML=`<td class="supply-cell">${invTip}${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openInvEdit(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
       } else {
-        tr.innerHTML=`<td class="supply-cell">${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
+        const givTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.style.position='relative';
+        tr.innerHTML=`<td class="supply-cell">${givTip}${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
       }
     } else {
       tr.className='empty-row';
@@ -625,7 +653,6 @@ function openModal(type){
   document.getElementById('f-stock-hint').className='hint';
   document.getElementById('f-qty-hint').textContent='';
   document.getElementById('f-qty-hint').className='hint';
-  document.getElementById('f-changed-by').value='';
   document.getElementById('f-variety-select').innerHTML='<option value="">— Select a variety —</option>';
 
   if(type==='given'){
@@ -751,8 +778,7 @@ async function saveItem(){
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const variety=document.getElementById('f-variety').value.trim()?toTitleCase(document.getElementById('f-variety').value.trim()):null;
       const dateReceived=document.getElementById('f-date-received').value||null;
-      const changedBy=document.getElementById('f-changed-by').value.trim();
-      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:changedBy||null})});
+      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:null})});
       toast(name+' added to inventory!','success');
       closeModal(); await loadTable('current');
     } else {
@@ -771,8 +797,7 @@ async function saveItem(){
       const variety=document.getElementById('f-variety-select').value||null;
       const who=document.getElementById('f-who').value.trim();
       const dateGiven=document.getElementById('f-date-given').value||null;
-      const changedByG=document.getElementById('f-changed-by').value.trim();
-      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
+      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:null})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
       closeModal(); await loadTable('current'); await loadTable('given');
     }
@@ -949,6 +974,8 @@ function showSummary(){
   document.getElementById('main-page').classList.add('hidden');
   document.getElementById('summary-page').classList.add('active');
   document.getElementById('btn-summary').style.display='none';
+  const sumCard = document.querySelector('.sum-card');
+  if(!showEditedBy) sumCard.classList.add('col-edited-by-hidden');
   loadSummary();
 }
 function hideSummary(){
@@ -1016,7 +1043,6 @@ function renderSummaryTable(){
           variety: (it.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
-          recipient: '—',
           edited_by: it.changed_by||''});
       });
     }
@@ -1030,7 +1056,7 @@ function renderSummaryTable(){
           variety: (it.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
-          recipient: (it.detail||'—'),});
+          edited_by: it.changed_by||''});
       });
     }
     // Apply month filter (based on supply date)
@@ -1047,9 +1073,8 @@ function renderSummaryTable(){
     if(search) rows=rows.filter(r=>
       (r.name||'').toLowerCase().includes(search)||
       (r.variety||'').toLowerCase().includes(search)||
-      (r.recipient||'').toLowerCase().includes(search)||
       (r.date||'').toLowerCase().includes(search)||
-      (r.isoDate||'').toLowerCase().includes(search)
+      (r.edited_by||'').toLowerCase().includes(search)
     );
     const tbody=document.getElementById('tbody-summary');
     document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
@@ -1062,7 +1087,7 @@ function renderSummaryTable(){
         <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
         <td style="font-size:.82rem">${esc(r.date)}</td>
-        <td>${esc(r.recipient)}</td>
+        <td class="col-edited-by" style="font-size:.75rem;color:var(--muted)">${esc(r.edited_by)}</td>
         <td><button class="del-btn" style="opacity:.5" onclick="delLog(${r.logId})" title="Delete">✕</button></td>
       </tr>`).join('');
   } catch(err) {
@@ -1093,8 +1118,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—']}); });
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—')]}); });
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—']}); });
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—']}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
   pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
@@ -1126,8 +1151,8 @@ function exportPDF(){
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
-    head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient']],
-    body: rows.map(r=>r.slice(0,7)),
+    head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date']],
+    body: rows.map((r,i)=> showEditedBy ? [i+1,...r] : [i+1,...r.slice(0,6)]),
     styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
     headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
     alternateRowStyles: {fillColor:[244,244,248]},
