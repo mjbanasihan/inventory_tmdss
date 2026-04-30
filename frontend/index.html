@@ -86,8 +86,8 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
 .row-edit-btn:hover{opacity:1!important;color:var(--navy)}
 
 /* MODAL */
-.overlay{display:none;position:fixed;inset:0;background:rgba(26,31,143,.18);backdrop-filter:blur(2px);z-index:200;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 0}
-.modal-box{background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(26,31,143,.18);padding:28px 28px 22px;width:400px;max-width:95vw;animation:mIn .18s ease;overflow:visible;margin:auto}
+.overlay{display:none;position:fixed;inset:0;background:rgba(26,31,143,.18);backdrop-filter:blur(2px);z-index:200;align-items:center;justify-content:center}
+.modal-box{background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(26,31,143,.18);padding:28px 28px 22px;width:400px;max-width:95vw;animation:mIn .18s ease}
 @keyframes mIn{from{transform:translateY(18px) scale(.97);opacity:0}to{transform:none;opacity:1}}
 .modal-box h2{font-size:1.1rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--navy);margin-bottom:18px}
 .modal-box label{display:block;font-size:.75rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:4px;margin-top:14px}
@@ -110,7 +110,7 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
 .cal-wrap input[type=text]{width:100%;padding-right:36px;cursor:pointer}
 .cal-icon{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--navy);cursor:pointer;display:flex;align-items:center;opacity:.7}
 .cal-icon:hover{opacity:1}
-.cal-drop{display:none;position:fixed;z-index:9999;background:#fff;border:1.5px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(26,31,143,.14);padding:12px;width:260px}
+.cal-drop{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:999;background:#fff;border:1.5px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(26,31,143,.14);padding:12px;width:260px}
 .cal-drop.open{display:block}
 .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .cal-nav-btn{background:none;border:none;font-size:1.3rem;color:var(--navy);cursor:pointer;padding:2px 8px;border-radius:6px;line-height:1}
@@ -159,13 +159,23 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
 .stock-err{color:var(--red)}
 
 @media print{
-  body{background:#fff}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{background:#fff;font-size:10pt;margin:0;padding:0}
   header,#main-page,.overlay,#toast,.summary-topbar,.export-btns{display:none!important}
-  #summary-page{display:block!important;padding:0}
+  #summary-page{display:block!important;padding:0;width:100%}
+  .stat-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8pt;margin-bottom:14pt}
+  .stat-card{border-radius:6pt;padding:10pt 12pt;border-left-width:3pt}
+  .stat-val{font-size:18pt}
+  .sum-card{box-shadow:none;border:1pt solid #ddd;border-radius:6pt;margin-bottom:0}
   .table-wrap{max-height:none!important;overflow:visible!important}
+  table{width:100%;border-collapse:collapse;font-size:8pt}
+  thead th{background:#1a1f8f!important;color:#fff!important;padding:5pt 6pt;font-size:7.5pt;text-align:left;white-space:nowrap}
+  tbody td{padding:4pt 6pt;border-bottom:0.5pt solid #e0e0e0;vertical-align:middle}
+  tbody tr:nth-child(even){background:#f5f5f9!important}
+  .badge{padding:1pt 5pt;font-size:6.5pt;border-radius:10pt}
   .del-btn,.row-edit-btn{display:none}
   .col-edited-by{display:none!important}
-  @page{margin:18mm}
+  @page{size:A4 portrait;margin:12mm 14mm}
 }
 .col-edited-by-hidden .col-edited-by{display:none!important}
 .supply-cell{position:relative}
@@ -268,7 +278,10 @@ tbody tr:hover .row-tip{display:block}
       <span class="search-icon"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="#888" stroke-width="2"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#888" stroke-width="2" stroke-linecap="round"/></svg></span>
     </div>
     <div class="export-btns">
-
+      <button class="btn-export" id="btn-toggle-editedby" onclick="toggleEditedBy()" title="Show/hide Edited By column">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" stroke="currentColor" stroke-width="1.7"/></svg>
+        Edited By
+      </button>
       <button class="btn-export" onclick="printSummary()">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><rect x="3" y="7" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="M6 7V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v3" stroke="currentColor" stroke-width="1.7"/><line x1="6" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         Print
@@ -291,7 +304,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th></th></tr></thead>
+        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th class="col-edited-by">Edited By</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -380,6 +393,8 @@ tbody tr:hover .row-tip{display:block}
       </div>
     </div>
 
+    <label>Your Name <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional — recorded as editor)</span></label>
+    <input type="text" id="f-changed-by" placeholder="e.g. Maria Santos" autocomplete="off"/>
 
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -551,9 +566,13 @@ function renderTable(type){
     if(i<items.length){
       const it=items[i];
       if(type==='current'){
-        tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openInvEdit(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
+        const invTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.style.position='relative';
+        tr.innerHTML=`<td class="supply-cell">${invTip}${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openInvEdit(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
       } else {
-        tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
+        const givTip = it.changed_by ? `<span class="row-tip">Last edited by: ${esc(it.changed_by)}</span>` : '';
+        tr.style.position='relative';
+        tr.innerHTML=`<td class="supply-cell">${givTip}${i+1}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
       }
     } else {
       tr.className='empty-row';
@@ -578,20 +597,9 @@ function initCal(id, displayId, hiddenId, dropId, labelId, daysId){
   renderCal(id);
 }
 function openCal(id){
+  // Close all other cals
   Object.keys(calState).forEach(k=>{ if(k!==id) document.getElementById('cal-'+k).classList.remove('open'); });
-  const drop=document.getElementById('cal-'+id);
-  const wasOpen=drop.classList.contains('open');
-  drop.classList.toggle('open');
-  if(!wasOpen){
-    const s=calState[id];
-    if(s&&s.displayEl){
-      const rect=s.displayEl.getBoundingClientRect();
-      const dropH=280;
-      const spaceBelow=window.innerHeight-rect.bottom;
-      drop.style.top=(spaceBelow<dropH&&rect.top>dropH?(rect.top-dropH-4):(rect.bottom+4))+'px';
-      drop.style.left=rect.left+'px';
-    }
-  }
+  document.getElementById('cal-'+id).classList.toggle('open');
   renderCal(id);
 }
 function calPrev(id){ calState[id].month--; if(calState[id].month<0){calState[id].month=11;calState[id].year--;} renderCal(id); }
@@ -624,10 +632,8 @@ document.addEventListener('click',function(e){
   Object.keys(calState).forEach(id=>{
     const drop=document.getElementById('cal-'+id);
     if(drop&&drop.classList.contains('open')){
-      const s=calState[id];
-      const insideDrop=drop.contains(e.target);
-      const insideInput=s&&s.displayEl&&s.displayEl.parentElement&&s.displayEl.parentElement.contains(e.target);
-      if(!insideDrop&&!insideInput) drop.classList.remove('open');
+      // Check if click is inside the cal-wrap parent
+      if(!drop.parentElement.contains(e.target)) drop.classList.remove('open');
     }
   });
 });
@@ -659,19 +665,17 @@ function openModal(type){
   document.getElementById('f-stock-hint').className='hint';
   document.getElementById('f-qty-hint').textContent='';
   document.getElementById('f-qty-hint').className='hint';
-  document.getElementById('f-po').value='';
+  document.getElementById('f-changed-by').value='';
   document.getElementById('f-variety-select').innerHTML='<option value="">— Select a variety —</option>';
-  const poInput=document.getElementById('f-po');
-  if(type==='given'){poInput.readOnly=true;poInput.style.background='#f0f0f5';poInput.style.color='var(--muted)';poInput.style.cursor='default';poInput.placeholder='Auto-filled from inventory';}else{poInput.readOnly=false;poInput.style.background='';poInput.style.color='';poInput.style.cursor='';poInput.placeholder='e.g. PO-001';}
 
   if(type==='given'){
     // Group by supply name, track per-variety quantities
     const supplyMap={};
     currentItems.forEach(it=>{
       const k=it.supply_name.toLowerCase();
-      if(!supplyMap[k]) supplyMap[k]={name:it.supply_name,totalQty:0,varieties:[],po_number:it.po_number||''};
+      if(!supplyMap[k]) supplyMap[k]={name:it.supply_name,totalQty:0,varieties:[]};
       supplyMap[k].totalQty+=it.quantity;
-      if(it.variety) supplyMap[k].varieties.push({variety:it.variety,qty:it.quantity,po_number:it.po_number||''});
+      if(it.variety) supplyMap[k].varieties.push({variety:it.variety,qty:it.quantity});
     });
     const sel=document.getElementById('f-select');
     sel.innerHTML='<option value="">— Select a supply —</option>';
@@ -679,7 +683,6 @@ function openModal(type){
       const o=document.createElement('option');
       o.value=g.name; o.dataset.qty=g.totalQty;
       o.dataset.varieties=JSON.stringify(g.varieties);
-      o.dataset.po=g.po_number;
       o.textContent=g.name+' ('+g.totalQty+' available)';
       sel.appendChild(o);
     });
@@ -728,31 +731,18 @@ function onSupplyChange(){
       });
       if(varieties.length===1) varietySel.value=varieties[0].variety;
       varietyWrap.style.display='';
-      varietySel.onchange=()=>{checkQtyLimit();autofillPo();};
+      varietySel.onchange=()=>checkQtyLimit();
     } else {
       varietySel.innerHTML='<option value="">—</option>';
       varietyWrap.style.display='none';
     }
-    autofillPo();
     qty.focus();
   } else {
     hint.textContent=''; hint.className='hint';
     qty.removeAttribute('max');
     varietySel.innerHTML='<option value="">— Select a variety —</option>';
     varietyWrap.style.display='none';
-    document.getElementById('f-po').value='';
   }
-}
-
-function autofillPo(){
-  const sel=document.getElementById('f-select');
-  const vSel=document.getElementById('f-variety-select');
-  const poEl=document.getElementById('f-po');
-  if(!sel||!sel.value){poEl.value='';return;}
-  const opt=sel.options[sel.selectedIndex];
-  const sv=vSel&&vSel.style.display!=='none'?vSel.value:'';
-  if(sv){try{const vs=JSON.parse(opt.dataset.varieties||'[]');const m=vs.find(v=>v.variety===sv);if(m&&m.po_number){poEl.value=m.po_number;return;}}catch(e){}}
-  poEl.value=opt.dataset.po||'';
 }
 
 function getAvailQty(){
@@ -802,8 +792,7 @@ async function saveItem(){
       const variety=document.getElementById('f-variety').value.trim()?toTitleCase(document.getElementById('f-variety').value.trim()):null;
       const dateReceived=document.getElementById('f-date-received').value||null;
       const changedBy=document.getElementById('f-changed-by').value.trim();
-      const poNumber=document.getElementById('f-po').value.trim()||null;
-      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:null,po_number:poNumber})});
+      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:changedBy||null})});
       toast(name+' added to inventory!','success');
       closeModal(); await loadTable('current');
     } else {
@@ -823,8 +812,7 @@ async function saveItem(){
       const who=document.getElementById('f-who').value.trim();
       const dateGiven=document.getElementById('f-date-given').value||null;
       const changedByG=document.getElementById('f-changed-by').value.trim();
-      const poNumberG=document.getElementById('f-po').value.trim()||null;
-      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:null,po_number:poNumberG})});
+      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:changedByG||null})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
       closeModal(); await loadTable('current'); await loadTable('given');
     }
@@ -844,7 +832,6 @@ function openInvEdit(id){
   try{
     const it=currentItems.find(x=>x.id===id); if(!it){ toast('Item not found','error'); return; }
     document.getElementById('ie-id').value=id;
-    document.getElementById('ie-po').value=it.po_number||'';
     document.getElementById('ie-name').value=it.supply_name||'';
     document.getElementById('ie-variety').value=it.variety||'';
     document.getElementById('ie-qty').value=it.quantity||'';
@@ -875,7 +862,6 @@ function closeInvEdit(){
 
 async function saveInvEdit(){
   const id=parseInt(document.getElementById('ie-id').value);
-  const poNumber=document.getElementById('ie-po').value.trim()||null;
   const name=toTitleCase(document.getElementById('ie-name').value.trim());
   const variety=document.getElementById('ie-variety').value.trim()?toTitleCase(document.getElementById('ie-variety').value.trim()):null;
   const qty=parseInt(document.getElementById('ie-qty').value)||0;
@@ -885,11 +871,11 @@ async function saveInvEdit(){
   if(qty<=0){ toast('Quantity must be > 0','error'); return; }
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
-    const updated=await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null,po_number:poNumber})});
+    const updated=await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null})});
     console.log('saveInvEdit — variety sent:',variety,'response variety:',updated?.variety);
     // Patch local cache with server response (use server value for variety, fall back to what we sent)
     const idx=currentItems.findIndex(x=>x.id===id);
-    const fresh={...(idx>=0?currentItems[idx]:{}), ...(updated||{}), supply_name:name, po_number:(updated&&'po_number' in updated?updated.po_number:poNumber), variety:(updated&&'variety' in updated?updated.variety:variety), quantity:qty, date_received:date};
+    const fresh={...(idx>=0?currentItems[idx]:{}), ...(updated||{}), supply_name:name, variety:(updated&&'variety' in updated?updated.variety:variety), quantity:qty, date_received:date};
     if(idx>=0) currentItems[idx]=fresh; else currentItems.push(fresh);
     toast('Item updated!','success');
     closeInvEdit();
@@ -925,7 +911,6 @@ function openEditModal(id){
   const it=givenItems.find(x=>x.id===id); if(!it){ toast('Item not found','error'); return; }
   egOrigQty=it.quantity; egOrigSupply=it.supply_name;
   document.getElementById('eg-id').value=id;
-  document.getElementById('eg-po').value=it.po_number||'';
   document.getElementById('eg-supply').value=it.supply_name;
   document.getElementById('eg-variety').value=it.variety||'';
   document.getElementById('eg-qty').value=it.quantity;
@@ -985,8 +970,7 @@ async function saveEdit(){
 
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
-    const poNumberE=document.getElementById('eg-po').value.trim()||null;
-    const payload={supply_name:egOrigSupply,quantity:qty,who_received:who||null,date_given:date,variety:document.getElementById('eg-variety').value||null,po_number:poNumberE};
+    const payload={supply_name:egOrigSupply,quantity:qty,who_received:who||null,date_given:date};
     console.log('PUT payload:', JSON.stringify(payload));
     await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify(payload)});
     toast('Record updated!','success');
@@ -1071,7 +1055,6 @@ function renderSummaryTable(){
         const isDel = it.txn_type==='inventory_deleted';
         const isEdit = it.txn_type==='inventory_edited';
         rows.push({type: isDel?'inv_del':isEdit?'inv_edit':'inv', name:it.supply_name||'', qty:it.quantity||0,
-          po_number: (it.po_number||''),
           variety: (it.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
@@ -1086,7 +1069,6 @@ function renderSummaryTable(){
         const isDel = it.txn_type==='given_out_deleted';
         const isEdit = it.txn_type==='given_out_edited';
         rows.push({type: isDel?'giv_del':isEdit?'giv_edit':'giv', name:it.supply_name||'', qty:it.quantity||0,
-          po_number: (it.po_number||''),
           variety: (it.variety||''),
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
@@ -1107,24 +1089,24 @@ function renderSummaryTable(){
     });
     if(search) rows=rows.filter(r=>
       (r.name||'').toLowerCase().includes(search)||
-      (r.po_number||'').toLowerCase().includes(search)||
       (r.variety||'').toLowerCase().includes(search)||
       (r.recipient||'').toLowerCase().includes(search)||
       (r.date||'').toLowerCase().includes(search)||
-      (r.isoDate||'').toLowerCase().includes(search)
+      (r.edited_by||'').toLowerCase().includes(search)
     );
     const tbody=document.getElementById('tbody-summary');
     document.getElementById('txn-count').textContent=rows.length+' record'+(rows.length!==1?'s':'');
     if(!rows.length){ tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;padding:32px;color:#aaa">No transactions found.</td></tr>`; return; }
     tbody.innerHTML=rows.map((r,i)=>`
       <tr>
-        <td>${esc(r.po_number||'—')}</td>
+        <td>${i+1}</td>
         <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':r.type==='giv'?'Given Out':r.type==='inv_del'||r.type==='giv_del'?'Deleted':r.type==='inv_edit'||r.type==='giv_edit'?'Edited':'Received'}</span></td>
         <td>${esc(r.name)}</td>
         <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
         <td style="font-size:.82rem">${esc(r.date)}</td>
         <td>${esc(r.recipient)}</td>
+        <td class="col-edited-by" style="font-size:.75rem;color:var(--muted)">${esc(r.edited_by)}</td>
         <td><button class="del-btn" style="opacity:.5" onclick="delLog(${r.logId})" title="Delete">✕</button></td>
       </tr>`).join('');
   } catch(err) {
@@ -1145,7 +1127,12 @@ async function delLog(id){
 }
 
 // ── PRINT / PDF ────────────────────────────────────────────────────────────
-function printSummary(){ window.print(); }
+function printSummary(){
+  const prev=document.title;
+  document.title='TSD-TMDSS Inventory Summary';
+  window.print();
+  document.title=prev;
+}
 
 function exportPDF(){
   if(!summaryData){ toast('No data to export','error'); return; }
@@ -1155,8 +1142,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.po_number||'—',it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—',(it.changed_by||'')]}); });
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.po_number||'—',it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—'),(it.changed_by||'')]}); });
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—',(it.changed_by||'')]}); });
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—'),(it.changed_by||'')]}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
   pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
@@ -1188,8 +1175,8 @@ function exportPDF(){
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
-    head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient']],
-    body: rows.map(r=>r.slice(0,7)),
+    head: [showEditedBy ? ['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient','Edited By'] : ['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient']],
+    body: rows.map((r,i)=> showEditedBy ? [i+1,...r] : [i+1,...r.slice(0,6)]),
     styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
     headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
     alternateRowStyles: {fillColor:[244,244,248]},
