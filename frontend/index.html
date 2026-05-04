@@ -1174,7 +1174,7 @@ function exportPDF(){
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
   pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
   pdfRowsRaw.forEach(r=>rows.push(r.row));
-  if(search) rows=rows.filter(r=>r[1].toLowerCase().includes(search)||r[3].toLowerCase().includes(search));
+  if(search) rows=rows.filter(r=>r.some(v=>String(v).toLowerCase().includes(search)));
   const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
   const pageW=doc.internal.pageSize.getWidth(), margin=14;
 
@@ -1197,23 +1197,59 @@ function exportPDF(){
     doc.setTextColor(120,120,130); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.text(l,x+7,bY+16.5);
   });
 
+  // Badge colors matching the UI
+  const badgeColors={
+    'Received':   {bg:[212,240,224], text:[26,107,56]},
+    'Given Out':  {bg:[253,232,232], text:[169,50,38]},
+    'Edited':     {bg:[232,240,253], text:[26,63,169]},
+    'Deleted':    {bg:[253,243,232], text:[169,107,26]},
+  };
+
   // Table — portrait A4 usable: 210mm - 28mm margins = 182mm
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
     head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date']],
     body: rows.map(r=>r),
-    styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
-    headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
+    styles: {font:'helvetica', fontSize:8, cellPadding:3, overflow:'linebreak'},
+    headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3.5},
     alternateRowStyles: {fillColor:[244,244,248]},
     columnStyles: {
-      0: {cellWidth:10, halign:'center'},
-      1: {cellWidth:22},
+      0: {cellWidth:22, halign:'left', fontStyle:'bold'},
+      1: {cellWidth:26, halign:'left'},
       2: {cellWidth:'auto'},
-      3: {cellWidth:22},
-      4: {cellWidth:11, halign:'center'},
-      5: {cellWidth:32},
-      6: {cellWidth:34},
+      3: {cellWidth:24},
+      4: {cellWidth:10, halign:'center'},
+      5: {cellWidth:30},
+    },
+    didParseCell: function(data){
+      if(data.section==='body' && data.column.index===1){
+        const label=data.cell.raw;
+        const colors=badgeColors[label];
+        if(colors){
+          data.cell.styles.fillColor=colors.bg;
+          data.cell.styles.textColor=colors.text;
+          data.cell.styles.fontStyle='bold';
+          data.cell.styles.halign='center';
+        }
+      }
+    },
+    didDrawCell: function(data){
+      if(data.section==='body' && data.column.index===1){
+        const label=data.cell.raw;
+        const colors=badgeColors[label];
+        if(colors){
+          const r=data.cell.x+2, t=data.cell.y+1.5;
+          const w=data.cell.width-4, h=data.cell.height-3;
+          const radius=2.5;
+          doc.setFillColor(...colors.bg);
+          doc.roundedRect(r,t,w,h,radius,radius,'F');
+          doc.setFont('helvetica','bold');
+          doc.setFontSize(7);
+          doc.setTextColor(...colors.text);
+          doc.text(label, r+w/2, t+h/2+2.5, {align:'center'});
+        }
+      }
     }
   });
   const fy=doc.lastAutoTable.finalY+6;
