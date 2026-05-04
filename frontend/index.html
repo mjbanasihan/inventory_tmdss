@@ -301,7 +301,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Recipient</th><th></th></tr></thead>
+        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -1119,7 +1119,6 @@ function renderSummaryTable(){
       (r.name||'').toLowerCase().includes(search)||
       (r.po_number||'').toLowerCase().includes(search)||
       (r.variety||'').toLowerCase().includes(search)||
-      (r.recipient||'').toLowerCase().includes(search)||
       (r.date||'').toLowerCase().includes(search)||
       (r.isoDate||'').toLowerCase().includes(search)
     );
@@ -1134,7 +1133,6 @@ function renderSummaryTable(){
         <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
         <td style="font-size:.82rem">${esc(r.date)}</td>
-        <td>${esc(r.recipient)}</td>
         <td><button class="del-btn" style="opacity:.5" onclick="delLog(${r.logId})" title="Delete">✕</button></td>
       </tr>`).join('');
   } catch(err) {
@@ -1170,8 +1168,8 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
   let rows=[];
   let pdfRowsRaw=[];
-  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.po_number||'—',it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—','—',(it.changed_by||'')]}); });
-  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.po_number||'—',it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—',(it.detail||'—'),(it.changed_by||'')]}); });
+  if(summaryFilter!=='given')     summaryData.inventory.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||it.variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',row:[it.po_number||'—',it.txn_type==='inventory_edited'?'Edited':'Received',it.supply_name,v,String(it.quantity),isoToDisplay(it.detail||'')||'—']}); });
+  if(summaryFilter!=='inventory') summaryData.given_out.items.forEach(it=>{ const v=(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||''; pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',row:[it.po_number||'—',it.txn_type==='given_out_edited'?'Edited':'Given Out',it.supply_name,v,String(it.quantity),isoToDisplay(it.date_given||'')||'—']}); });
   const mf=document.getElementById('month-filter').value;
   if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
   pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
@@ -1203,8 +1201,8 @@ function exportPDF(){
   doc.autoTable({
     startY: bY+bH+6,
     margin: {left:margin, right:margin},
-    head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date','Recipient']],
-    body: rows.map(r=>r.slice(0,7)),
+    head: [['P.O. No.','Type','Supply Name','Variety','Qty','Date']],
+    body: rows.map(r=>r),
     styles: {font:'helvetica', fontSize:8, cellPadding:2.5, overflow:'linebreak'},
     headStyles: {fillColor:[26,31,143], textColor:255, fontStyle:'bold', fontSize:7.5, cellPadding:3},
     alternateRowStyles: {fillColor:[244,244,248]},
