@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>TSD-TMDSS Inventory</title>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -1164,15 +1166,187 @@ function printSummary(){
 
 function exportPDF(){
   if(!summaryData){ toast('No data to export','error'); return; }
-  // Use browser print-to-PDF so the exported file matches the on-screen UI exactly
+  if(typeof window.jspdf==='undefined'){ toast('PDF library not ready, try again','error'); return; }
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const search=(document.getElementById('search-summary').value||'').toLowerCase();
+  let pdfRowsRaw=[];
+
+  // Build rows: [po_number, typeLabel, supply_name, variety, qty, date]
+  const badgeColors={
+    'Received':  {bg:[212,240,224], text:[26,107,56]},
+    'Given Out': {bg:[253,232,232], text:[169,50,38]},
+    'Edited':    {bg:[232,240,253], text:[26,63,169]},
+    'Deleted':   {bg:[253,243,232], text:[169,107,26]},
+  };
+
+  if(summaryFilter!=='given')
+    summaryData.inventory.items.forEach(it=>{
+      const v=it.variety||(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||'';
+      const label=it.txn_type==='inventory_edited'?'Edited':it.txn_type==='inventory_deleted'?'Deleted':'Received';
+      pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',
+        po:it.po_number||'—', label, name:it.supply_name||'', variety:v,
+        qty:String(it.quantity), date:isoToDisplay(it.detail||'')||'—'});
+    });
+  if(summaryFilter!=='inventory')
+    summaryData.given_out.items.forEach(it=>{
+      const v=it.variety||(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||'';
+      const label=it.txn_type==='given_out_edited'?'Edited':it.txn_type==='given_out_deleted'?'Deleted':'Given Out';
+      pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',
+        po:it.po_number||'—', label, name:it.supply_name||'', variety:v,
+        qty:String(it.quantity), date:isoToDisplay(it.date_given||'')||'—'});
+    });
+
+  const mf=document.getElementById('month-filter').value;
+  if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
+  pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
+  if(search) pdfRowsRaw=pdfRowsRaw.filter(r=>
+    (r.po+r.label+r.name+r.variety+r.qty+r.date).toLowerCase().includes(search));
+
+  const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
+  const pageW=doc.internal.pageSize.getWidth();
+  const pageH=doc.internal.pageSize.getHeight();
+  const margin=14;
+
+  // ── Navy header bar ────────────────────────────────────────────────────────
+  doc.setFillColor(26,31,143);
+  doc.rect(0,0,pageW,20,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(12);
+  doc.text('TSD-TMDSS INVENTORY SUMMARY',margin,13);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(8);
+  doc.text('Generated: '+now,pageW-margin,13,{align:'right'});
+
+  // ── Stat boxes ─────────────────────────────────────────────────────────────
+  const bY=25, bH=16, bW=(pageW-margin*2-8)/3;
+  [[summaryData.inventory.total_lines+summaryData.given_out.total_lines,'TOTAL TRANSACTIONS',[26,31,143]],
+   [summaryData.inventory.total_units,'INVENTORY UNITS',[26,143,74]],
+   [summaryData.given_out.total_units,'SUPPLY GIVEN OUT',[192,57,43]]
+  ].forEach(([v,l,col],i)=>{
+    const x=margin+i*(bW+4);
+    doc.setFillColor(247,247,249); doc.roundedRect(x,bY,bW,bH,2,2,'F');
+    doc.setFillColor(...col); doc.rect(x,bY,3,bH,'F');
+    doc.setTextColor(...col); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+    doc.text(String(v),x+7,bY+10);
+    doc.setTextColor(130,130,140); doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
+    doc.text(l,x+7,bY+15);
+  });
+
+  // ── Table ──────────────────────────────────────────────────────────────────
+  const tableStartY=bY+bH+5;
+  const colWidths=[28,28,60,30,14,36];  // PO, Type, Supply, Variety, Qty, Date
+  const colKeys=['po','label','name','variety','qty','date'];
+  const headers=['P.O. NO.','TYPE','SUPPLY NAME','VARIETY','QTY','DATE RECEIVED / DATE GIVEN OUT'];
+  const rowH=8, headerH=9;
+  const tableW=colWidths.reduce((a,b)=>a+b,0);
+
+  let y=tableStartY;
+
+  function drawTableHeader(){
+    // Navy header row
+    doc.setFillColor(26,31,143);
+    doc.rect(margin,y,tableW,headerH,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(7);
+    let x=margin;
+    headers.forEach((h,i)=>{
+      doc.text(h,x+3,y+6);
+      x+=colWidths[i];
+    });
+    y+=headerH;
+  }
+
+  drawTableHeader();
+
+  pdfRowsRaw.forEach((row,idx)=>{
+    // New page if needed
+    if(y+rowH>pageH-14){
+      doc.addPage();
+      y=14;
+      drawTableHeader();
+    }
+
+    // Alternating row background
+    if(idx%2===1){
+      doc.setFillColor(244,244,248);
+      doc.rect(margin,y,tableW,rowH,'F');
+    } else {
+      doc.setFillColor(255,255,255);
+      doc.rect(margin,y,tableW,rowH,'F');
+    }
+
+    // Row separator
+    doc.setDrawColor(220,220,225);
+    doc.setLineWidth(0.2);
+    doc.line(margin,y+rowH,margin+tableW,y+rowH);
+
+    let x=margin;
+    colKeys.forEach((key,ci)=>{
+      const cellW=colWidths[ci];
+      const val=row[key]||'';
+
+      if(key==='label'){
+        // Draw colored badge pill
+        const colors=badgeColors[val]||{bg:[240,240,240],text:[80,80,80]};
+        const badgeW=cellW-6, badgeH=4.5;
+        const bx=x+3, by=y+(rowH-badgeH)/2;
+        doc.setFillColor(...colors.bg);
+        doc.roundedRect(bx,by,badgeW,badgeH,2,2,'F');
+        doc.setTextColor(...colors.text);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(6);
+        doc.text(val.toUpperCase(),bx+badgeW/2,by+3.2,{align:'center'});
+      } else if(key==='po'){
+        doc.setTextColor(30,30,50);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(7.5);
+        doc.text(val,x+3,y+5.5);
+      } else if(key==='qty'){
+        doc.setTextColor(30,30,50);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(7.5);
+        doc.text(val,x+3,y+5.5);
+      } else if(key==='variety'){
+        doc.setTextColor(130,130,150);
+        doc.setFont('helvetica','normal');
+        doc.setFontSize(7.5);
+        doc.text(val,x+3,y+5.5);
+      } else {
+        doc.setTextColor(30,30,50);
+        doc.setFont('helvetica','normal');
+        doc.setFontSize(7.5);
+        // Clip text to cell width
+        const maxW=cellW-6;
+        let txt=val;
+        while(doc.getTextWidth(txt)>maxW&&txt.length>1) txt=txt.slice(0,-1);
+        if(txt!==val) txt=txt.slice(0,-1)+'…';
+        doc.text(txt,x+3,y+5.5);
+      }
+      x+=cellW;
+    });
+
+    y+=rowH;
+  });
+
+  // ── Footer ─────────────────────────────────────────────────────────────────
+  doc.setDrawColor(200,200,210);
+  doc.setLineWidth(0.3);
+  doc.line(margin,y+4,margin+tableW,y+4);
+  doc.setTextColor(170,170,180);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7);
+  doc.text('TSD-TMDSS Inventory System · '+now,pageW/2,y+9,{align:'center'});
+  doc.text(pdfRowsRaw.length+' record'+(pdfRowsRaw.length!==1?'s':''),margin,y+9);
+
   const _d=new Date();
   const _dd=String(_d.getDate()).padStart(2,'0');
   const _dm=['January','February','March','April','May','June','July','August','September','October','November','December'][_d.getMonth()];
   const _dy=_d.getFullYear();
-  const prev=document.title;
-  document.title='TSD-TMDSS_Inventory_'+_dd+'-'+_dm+'-'+_dy;
-  window.print();
-  document.title=prev;
+  doc.save('TSD-TMDSS_Inventory_'+_dd+'-'+_dm+'-'+_dy+'.pdf');
+  toast('PDF downloaded!','success');
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────
