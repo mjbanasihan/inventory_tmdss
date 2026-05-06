@@ -1168,183 +1168,146 @@ function exportPDF(){
   if(!summaryData){ toast('No data to export','error'); return; }
   if(typeof window.jspdf==='undefined'){ toast('PDF library not ready, try again','error'); return; }
   const {jsPDF}=window.jspdf;
+  // Landscape A4: 297mm x 210mm
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const pageW=doc.internal.pageSize.getWidth();
+  const pageH=doc.internal.pageSize.getHeight();
+  const margin=14;
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
-  let pdfRowsRaw=[];
 
-  // Build rows: [po_number, typeLabel, supply_name, variety, qty, date]
+  // ── Build row data ──────────────────────────────────────────────────────────
   const badgeColors={
     'Received':  {bg:[212,240,224], text:[26,107,56]},
     'Given Out': {bg:[253,232,232], text:[169,50,38]},
     'Edited':    {bg:[232,240,253], text:[26,63,169]},
     'Deleted':   {bg:[253,243,232], text:[169,107,26]},
   };
-
+  let pdfRows=[];
   if(summaryFilter!=='given')
     summaryData.inventory.items.forEach(it=>{
       const v=it.variety||(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||'';
-      const label=it.txn_type==='inventory_edited'?'Edited':it.txn_type==='inventory_deleted'?'Deleted':'Received';
-      pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',
-        po:it.po_number||'—', label, name:it.supply_name||'', variety:v,
-        qty:String(it.quantity), date:isoToDisplay(it.detail||'')||'—'});
+      const label=it.txn_type==='inventory_deleted'?'Deleted':it.txn_type==='inventory_edited'?'Edited':'Received';
+      pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',
+        po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
+        qty:String(it.quantity),date:isoToDisplay(it.detail||'')||'—'});
     });
   if(summaryFilter!=='inventory')
     summaryData.given_out.items.forEach(it=>{
       const v=it.variety||(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||'';
-      const label=it.txn_type==='given_out_edited'?'Edited':it.txn_type==='given_out_deleted'?'Deleted':'Given Out';
-      pdfRowsRaw.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',
-        po:it.po_number||'—', label, name:it.supply_name||'', variety:v,
-        qty:String(it.quantity), date:isoToDisplay(it.date_given||'')||'—'});
+      const label=it.txn_type==='given_out_deleted'?'Deleted':it.txn_type==='given_out_edited'?'Edited':'Given Out';
+      pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',
+        po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
+        qty:String(it.quantity),date:isoToDisplay(it.date_given||'')||'—'});
     });
-
   const mf=document.getElementById('month-filter').value;
-  if(mf) pdfRowsRaw=pdfRowsRaw.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
-  pdfRowsRaw.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
-  if(search) pdfRowsRaw=pdfRowsRaw.filter(r=>
-    (r.po+r.label+r.name+r.variety+r.qty+r.date).toLowerCase().includes(search));
+  if(mf) pdfRows=pdfRows.filter(r=>r.iso&&r.iso.slice(0,7)===mf);
+  pdfRows.sort((a,b)=>{ if(!a.ca&&!b.ca)return a.id-b.id; if(!a.ca)return 1; if(!b.ca)return -1; return a.ca.localeCompare(b.ca); });
+  if(search) pdfRows=pdfRows.filter(r=>(r.po+r.label+r.name+r.variety+r.qty+r.date).toLowerCase().includes(search));
 
   const now=new Date().toLocaleString('en-PH',{dateStyle:'long',timeStyle:'short'});
-  const pageW=doc.internal.pageSize.getWidth();
-  const pageH=doc.internal.pageSize.getHeight();
-  const margin=14;
-
-  // ── Navy header bar ────────────────────────────────────────────────────────
-  doc.setFillColor(26,31,143);
-  doc.rect(0,0,pageW,20,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(12);
-  doc.text('TSD-TMDSS INVENTORY SUMMARY',margin,13);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(8);
-  doc.text('Generated: '+now,pageW-margin,13,{align:'right'});
-
-  // ── Stat boxes ─────────────────────────────────────────────────────────────
-  const bY=25, bH=16, bW=(pageW-margin*2-8)/3;
-  [[summaryData.inventory.total_lines+summaryData.given_out.total_lines,'TOTAL TRANSACTIONS',[26,31,143]],
-   [summaryData.inventory.total_units,'INVENTORY UNITS',[26,143,74]],
-   [summaryData.given_out.total_units,'SUPPLY GIVEN OUT',[192,57,43]]
-  ].forEach(([v,l,col],i)=>{
-    const x=margin+i*(bW+4);
-    doc.setFillColor(247,247,249); doc.roundedRect(x,bY,bW,bH,2,2,'F');
-    doc.setFillColor(...col); doc.rect(x,bY,3,bH,'F');
-    doc.setTextColor(...col); doc.setFont('helvetica','bold'); doc.setFontSize(13);
-    doc.text(String(v),x+7,bY+10);
-    doc.setTextColor(130,130,140); doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
-    doc.text(l,x+7,bY+15);
-  });
-
-  // ── Table ──────────────────────────────────────────────────────────────────
-  const tableStartY=bY+bH+5;
-  const colWidths=[28,28,60,30,14,36];  // PO, Type, Supply, Variety, Qty, Date
-  const colKeys=['po','label','name','variety','qty','date'];
-  const headers=['P.O. NO.','TYPE','SUPPLY NAME','VARIETY','QTY','DATE RECEIVED / DATE GIVEN OUT'];
-  const rowH=8, headerH=9;
-  const tableW=colWidths.reduce((a,b)=>a+b,0);
-
-  let y=tableStartY;
-
-  function drawTableHeader(){
-    // Navy header row
-    doc.setFillColor(26,31,143);
-    doc.rect(margin,y,tableW,headerH,'F');
-    doc.setTextColor(255,255,255);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(7);
-    let x=margin;
-    headers.forEach((h,i)=>{
-      doc.text(h,x+3,y+6);
-      x+=colWidths[i];
-    });
-    y+=headerH;
-  }
-
-  drawTableHeader();
-
-  pdfRowsRaw.forEach((row,idx)=>{
-    // New page if needed
-    if(y+rowH>pageH-14){
-      doc.addPage();
-      y=14;
-      drawTableHeader();
-    }
-
-    // Alternating row background
-    if(idx%2===1){
-      doc.setFillColor(244,244,248);
-      doc.rect(margin,y,tableW,rowH,'F');
-    } else {
-      doc.setFillColor(255,255,255);
-      doc.rect(margin,y,tableW,rowH,'F');
-    }
-
-    // Row separator
-    doc.setDrawColor(220,220,225);
-    doc.setLineWidth(0.2);
-    doc.line(margin,y+rowH,margin+tableW,y+rowH);
-
-    let x=margin;
-    colKeys.forEach((key,ci)=>{
-      const cellW=colWidths[ci];
-      const val=row[key]||'';
-
-      if(key==='label'){
-        // Draw colored badge pill
-        const colors=badgeColors[val]||{bg:[240,240,240],text:[80,80,80]};
-        const badgeW=cellW-6, badgeH=4.5;
-        const bx=x+3, by=y+(rowH-badgeH)/2;
-        doc.setFillColor(...colors.bg);
-        doc.roundedRect(bx,by,badgeW,badgeH,2,2,'F');
-        doc.setTextColor(...colors.text);
-        doc.setFont('helvetica','bold');
-        doc.setFontSize(6);
-        doc.text(val.toUpperCase(),bx+badgeW/2,by+3.2,{align:'center'});
-      } else if(key==='po'){
-        doc.setTextColor(30,30,50);
-        doc.setFont('helvetica','bold');
-        doc.setFontSize(7.5);
-        doc.text(val,x+3,y+5.5);
-      } else if(key==='qty'){
-        doc.setTextColor(30,30,50);
-        doc.setFont('helvetica','bold');
-        doc.setFontSize(7.5);
-        doc.text(val,x+3,y+5.5);
-      } else if(key==='variety'){
-        doc.setTextColor(130,130,150);
-        doc.setFont('helvetica','normal');
-        doc.setFontSize(7.5);
-        doc.text(val,x+3,y+5.5);
-      } else {
-        doc.setTextColor(30,30,50);
-        doc.setFont('helvetica','normal');
-        doc.setFontSize(7.5);
-        // Clip text to cell width
-        const maxW=cellW-6;
-        let txt=val;
-        while(doc.getTextWidth(txt)>maxW&&txt.length>1) txt=txt.slice(0,-1);
-        if(txt!==val) txt=txt.slice(0,-1)+'…';
-        doc.text(txt,x+3,y+5.5);
-      }
-      x+=cellW;
-    });
-
-    y+=rowH;
-  });
-
-  // ── Footer ─────────────────────────────────────────────────────────────────
-  doc.setDrawColor(200,200,210);
-  doc.setLineWidth(0.3);
-  doc.line(margin,y+4,margin+tableW,y+4);
-  doc.setTextColor(170,170,180);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(7);
-  doc.text('TSD-TMDSS Inventory System · '+now,pageW/2,y+9,{align:'center'});
-  doc.text(pdfRowsRaw.length+' record'+(pdfRowsRaw.length!==1?'s':''),margin,y+9);
-
   const _d=new Date();
   const _dd=String(_d.getDate()).padStart(2,'0');
   const _dm=['January','February','March','April','May','June','July','August','September','October','November','December'][_d.getMonth()];
   const _dy=_d.getFullYear();
+
+  // ── Page renderer (called for first page and each new page) ────────────────
+  // Columns: PO NO | TYPE | SUPPLY NAME | VARIETY | QTY | DATE RECEIVED/GIVEN OUT
+  const cols=[
+    {key:'po',     label:'P.O. NO.',                          w:28, bold:true,  align:'left',   muted:false},
+    {key:'label',  label:'TYPE',                              w:32, bold:false, align:'center', muted:false, badge:true},
+    {key:'name',   label:'SUPPLY NAME',                       w:68, bold:false, align:'left',   muted:false},
+    {key:'variety',label:'VARIETY',                           w:34, bold:false, align:'left',   muted:true},
+    {key:'qty',    label:'QTY',                               w:16, bold:true,  align:'left',   muted:false},
+    {key:'date',   label:'DATE RECEIVED / DATE GIVEN OUT',    w:65, bold:false, align:'left',   muted:false},
+  ];
+  const tableW=cols.reduce((s,c)=>s+c.w,0);
+  const rowH=8.5;
+  const hdrH=9;
+
+  function drawHeader(y){
+    // "ALL TRANSACTIONS" title + record count
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(13);
+    doc.setTextColor(26,26,46);
+    doc.text('ALL TRANSACTIONS',margin,y+7);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8);
+    doc.setTextColor(130,130,150);
+    doc.text(pdfRows.length+' record'+(pdfRows.length!==1?'s':''),margin+tableW,y+7,{align:'right'});
+    y+=12;
+
+    // Navy column header row
+    doc.setFillColor(26,31,143);
+    doc.rect(margin,y,tableW,hdrH,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(7);
+    let x=margin;
+    cols.forEach(col=>{
+      doc.text(col.label,x+3,y+6);
+      x+=col.w;
+    });
+    return y+hdrH;
+  }
+
+  let y=drawHeader(margin);
+
+  // ── Draw rows ───────────────────────────────────────────────────────────────
+  pdfRows.forEach((row,idx)=>{
+    // New page
+    if(y+rowH>pageH-margin){
+      doc.addPage();
+      y=drawHeader(margin);
+    }
+
+    // Row background (alternating)
+    doc.setFillColor(idx%2===0?255:244,idx%2===0?255:244,idx%2===0?255:248);
+    doc.rect(margin,y,tableW,rowH,'F');
+
+    // Bottom border
+    doc.setDrawColor(228,228,228);
+    doc.setLineWidth(0.2);
+    doc.line(margin,y+rowH,margin+tableW,y+rowH);
+
+    let x=margin;
+    cols.forEach(col=>{
+      const val=row[col.key]||'';
+      if(col.badge){
+        // Colored pill badge
+        const bc=badgeColors[val]||{bg:[235,235,235],text:[80,80,80]};
+        const bw=col.w-8, bh=5;
+        const bx=x+4, by=y+(rowH-bh)/2;
+        doc.setFillColor(...bc.bg);
+        doc.roundedRect(bx,by,bw,bh,2,2,'F');
+        doc.setTextColor(...bc.text);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(6);
+        doc.text(val.toUpperCase(),bx+bw/2,by+3.5,{align:'center'});
+      } else {
+        doc.setFont('helvetica', col.bold?'bold':'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(col.muted?150:30, col.muted?150:30, col.muted?165:50);
+        // Clip to cell
+        let txt=val;
+        const maxW=col.w-6;
+        while(txt.length>1&&doc.getTextWidth(txt)>maxW) txt=txt.slice(0,-1);
+        if(txt!==val) txt=txt.slice(0,-1)+'…';
+        doc.text(txt,x+3,y+5.8);
+      }
+      x+=col.w;
+    });
+    y+=rowH;
+  });
+
+  // ── Footer line ─────────────────────────────────────────────────────────────
+  doc.setDrawColor(210,210,220);
+  doc.setLineWidth(0.3);
+  doc.line(margin,y+3,margin+tableW,y+3);
+  doc.setTextColor(180,180,190);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7);
+  doc.text('TSD-TMDSS Inventory System  ·  '+now,pageW/2,y+8,{align:'center'});
+
   doc.save('TSD-TMDSS_Inventory_'+_dd+'-'+_dm+'-'+_dy+'.pdf');
   toast('PDF downloaded!','success');
 }
