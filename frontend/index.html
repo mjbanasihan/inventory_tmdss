@@ -1130,7 +1130,7 @@ function renderSummaryTable(){
     tbody.innerHTML=rows.map((r,i)=>`
       <tr>
         <td>${esc(r.po_number||'—')}</td>
-        <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':r.type==='giv'?'Given Out':r.type==='inv_del'||r.type==='giv_del'?'Deleted':r.type==='inv_edit'||r.type==='giv_edit'?'Edited':'Received'}</span></td>
+        <td><span class="badge badge-${r.type}">${r.type==='inv'?'Received':r.type==='giv'?'Given Out':r.type==='inv_edit'?'Received - Edited':r.type==='giv_edit'?'Given Out - Edited':r.type==='inv_del'?'Received - Deleted':r.type==='giv_del'?'Given Out - Deleted':'Received'}</span></td>
         <td>${esc(r.name)}</td>
         <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
@@ -1173,17 +1173,19 @@ function exportPDF(){
   const search=(document.getElementById('search-summary').value||'').toLowerCase();
 
   const badgeColors={
-    'Received':  {bg:[212,240,224], text:[26,107,56]},
-    'Given Out': {bg:[253,232,232], text:[169,50,38]},
-    'Edited':    {bg:[232,240,253], text:[26,63,169]},
-    'Deleted':   {bg:[253,243,232], text:[169,107,26]},
+    'Received':           {bg:[212,240,224], text:[26,107,56]},
+    'Given Out':          {bg:[253,232,232], text:[169,50,38]},
+    'Received - Edited':  {bg:[232,240,253], text:[26,63,169]},
+    'Given Out - Edited': {bg:[232,240,253], text:[26,63,169]},
+    'Received - Deleted': {bg:[253,243,232], text:[169,107,26]},
+    'Given Out - Deleted':{bg:[253,243,232], text:[169,107,26]},
   };
 
   let pdfRows=[];
   if(summaryFilter!=='given')
     summaryData.inventory.items.forEach(it=>{
       const v=it.variety||(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||'';
-      const label=it.txn_type==='inventory_deleted'?'Deleted':it.txn_type==='inventory_edited'?'Edited':'Received';
+      const label=it.txn_type==='inventory_deleted'?'Received - Deleted':it.txn_type==='inventory_edited'?'Received - Edited':'Received';
       pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',
         po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
         qty:String(it.quantity),date:isoToDisplay(it.detail||'')||'—'});
@@ -1191,7 +1193,7 @@ function exportPDF(){
   if(summaryFilter!=='inventory')
     summaryData.given_out.items.forEach(it=>{
       const v=it.variety||(currentItems.find(x=>x.supply_name===it.supply_name)||{}).variety||'';
-      const label=it.txn_type==='given_out_deleted'?'Deleted':it.txn_type==='given_out_edited'?'Edited':'Given Out';
+      const label=it.txn_type==='given_out_deleted'?'Given Out - Deleted':it.txn_type==='given_out_edited'?'Given Out - Edited':'Given Out';
       pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',
         po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
         qty:String(it.quantity),date:isoToDisplay(it.date_given||'')||'—'});
@@ -1212,8 +1214,8 @@ function exportPDF(){
   // PO:22 TYPE:26 SUPPLY:52 VARIETY:28 QTY:12 DATE:46 = 186
   const cols=[
     {key:'po',      label:'P.O. NO.',                       w:22, bold:true,  muted:false, badge:false},
-    {key:'label',   label:'TYPE',                           w:26, bold:false, muted:false, badge:true },
-    {key:'name',    label:'SUPPLY NAME',                    w:52, bold:false, muted:false, badge:false},
+    {key:'label',   label:'TYPE',                           w:36, bold:false, muted:false, badge:true },
+    {key:'name',    label:'SUPPLY NAME',                    w:46, bold:false, muted:false, badge:false},
     {key:'variety', label:'VARIETY',                        w:28, bold:false, muted:true,  badge:false},
     {key:'qty',     label:'QTY',                            w:12, bold:true,  muted:false, badge:false},
     {key:'date',    label:'DATE RECEIVED / DATE GIVEN OUT', w:46, bold:false, muted:false, badge:false},
@@ -1221,6 +1223,69 @@ function exportPDF(){
   const tableW=cols.reduce((s,col)=>s+col.w,0);
   const rowH=8, hdrH=9;
 
+  // ── SUMMARY HEADER ───────────────────────────────────────────────────────
+  let y=margin;
+
+  // Report title bar
+  doc.setFillColor(26,31,143);
+  doc.rect(margin, y, tableW, 14, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(255,255,255);
+  doc.text('TSD-TMDSS INVENTORY SUMMARY', margin+tableW/2, y+9, {align:'center'});
+  y+=14;
+
+  // Generated date subtitle
+  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,120,140);
+  doc.text('Generated: '+now, margin+tableW/2, y+5, {align:'center'});
+  y+=10;
+
+  // Compute stat card values from filtered pdfRows
+  const totalTxns = pdfRows.length;
+  const currentStock = summaryData.inventory.total_units;
+  const totalGivenOut = summaryData.given_out.total_units;
+
+  // Month label for subtitle
+  const mfLabel = (()=>{
+    if(!mf) return 'All Time';
+    const [my,mm]=mf.split('-');
+    return new Date(my,parseInt(mm)-1,1).toLocaleString('en-PH',{month:'long',year:'numeric'});
+  })();
+
+  // 3 stat cards side by side
+  const cardW=(tableW-8)/3;
+  const cardH=22;
+  const cards=[
+    {label:'TOTAL TRANSACTIONS', value:String(totalTxns),   accent:[26,31,143],  bg:[240,241,255]},
+    {label:'CURRENT STOCK (UNITS)', value:String(currentStock),  accent:[26,143,74],  bg:[236,252,243]},
+    {label:'TOTAL GIVEN OUT (UNITS)',value:String(totalGivenOut), accent:[192,57,43],  bg:[253,236,234]},
+  ];
+  cards.forEach((card,i)=>{
+    const cx=margin+i*(cardW+4);
+    // Card background
+    doc.setFillColor(...card.bg);
+    doc.roundedRect(cx, y, cardW, cardH, 2, 2, 'F');
+    // Left accent bar
+    doc.setFillColor(...card.accent);
+    doc.roundedRect(cx, y, 3, cardH, 1, 1, 'F');
+    // Label
+    doc.setFont('helvetica','bold'); doc.setFontSize(6); doc.setTextColor(100,100,120);
+    doc.text(card.label, cx+7, y+7);
+    // Value
+    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(...card.accent);
+    doc.text(card.value, cx+7, y+18);
+  });
+  y+=cardH+6;
+
+  // Period label
+  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(150,150,170);
+  doc.text('Period: '+mfLabel, margin, y+4);
+  y+=9;
+
+  // Divider
+  doc.setDrawColor(210,210,230); doc.setLineWidth(0.4);
+  doc.line(margin, y, margin+tableW, y);
+  y+=6;
+
+  // ── TABLE HEADER (repeated on new pages) ─────────────────────────────────
   function drawPageHeader(y){
     doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(26,26,46);
     doc.text('ALL TRANSACTIONS',margin,y+7);
@@ -1234,7 +1299,7 @@ function exportPDF(){
     return y+hdrH;
   }
 
-  let y=drawPageHeader(margin);
+  y=drawPageHeader(y);
 
   pdfRows.forEach((row,idx)=>{
     if(y+rowH>pageH-margin){ doc.addPage(); y=drawPageHeader(margin); }
