@@ -815,7 +815,6 @@ async function saveItem(){
       if(qty<=0){ toast('Quantity must be > 0','error'); btn.disabled=false; btn.textContent='Save'; return; }
       const variety=document.getElementById('f-variety').value.trim()?toTitleCase(document.getElementById('f-variety').value.trim()):null;
       const dateReceived=document.getElementById('f-date-received').value||null;
-      const changedBy=document.getElementById('f-changed-by').value.trim();
       const poNumber=document.getElementById('f-po').value.trim()||null;
       await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:null,po_number:poNumber})});
       toast(name+' added to inventory!','success');
@@ -836,7 +835,6 @@ async function saveItem(){
       const variety=document.getElementById('f-variety-select').value||null;
       const who=document.getElementById('f-who').value.trim();
       const dateGiven=document.getElementById('f-date-given').value||null;
-      const changedByG=document.getElementById('f-changed-by').value.trim();
       const poNumberG=document.getElementById('f-po').value.trim()||null;
       await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:null,po_number:poNumberG})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
