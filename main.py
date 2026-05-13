@@ -245,11 +245,11 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
 def get_given_out(search: str = "", db: Session = Depends(get_db)):
     if search:
         rows = db.execute(text(
-            "SELECT * FROM given_out_items WHERE supply_name ILIKE :s OR COALESCE(variety,''::varchar) ILIKE :s OR COALESCE(po_number,''::varchar) ILIKE :s OR COALESCE(date_given,''::varchar) ILIKE :s OR TO_CHAR(TO_DATE(NULLIF(date_given,''),'YYYY-MM-DD'),'DD Month YYYY') ILIKE :s OR TO_CHAR(TO_DATE(NULLIF(date_given,''),'YYYY-MM-DD'),'DD Mon YYYY') ILIKE :s ORDER BY id"
+            "SELECT * FROM given_out_items WHERE supply_name ILIKE :s OR COALESCE(variety,''::varchar) ILIKE :s OR COALESCE(po_number,''::varchar) ILIKE :s OR COALESCE(date_given,''::varchar) ILIKE :s OR TO_CHAR(TO_DATE(NULLIF(date_given,''),'YYYY-MM-DD'),'DD Month YYYY') ILIKE :s OR TO_CHAR(TO_DATE(NULLIF(date_given,''),'YYYY-MM-DD'),'DD Mon YYYY') ILIKE :s ORDER BY date_given DESC NULLS LAST, id DESC"
         ), {"s": f"%{search}%"}).mappings().all()
     else:
         rows = db.execute(text(
-            "SELECT * FROM given_out_items ORDER BY id"
+            "SELECT * FROM given_out_items ORDER BY date_given DESC NULLS LAST, id DESC"
         )).mappings().all()
     return [
             {
