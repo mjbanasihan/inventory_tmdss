@@ -252,7 +252,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>P.O. No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Who Received</th><th>Date Given</th><th></th></tr></thead>
+          <thead><tr><th>P.O. No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Who Received</th><th>Purpose</th><th>Date Given</th><th></th></tr></thead>
           <tbody id="tbody-given"></tbody>
         </table>
 
@@ -379,6 +379,12 @@ tbody tr:hover .row-tip{display:block}
       <input type="text" id="f-who" placeholder="e.g. Juan dela Cruz" autocomplete="off"/>
     </div>
 
+    <!-- Given-out: purpose -->
+    <div id="f-purpose-wrap" style="display:none">
+      <label>Purpose <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional)</span></label>
+      <input type="text" id="f-purpose" placeholder="e.g. For office use" autocomplete="off"/>
+    </div>
+
     <!-- Given-out: date given -->
     <div id="f-date-given-wrap" style="display:none">
       <label>Date Given</label>
@@ -450,6 +456,8 @@ tbody tr:hover .row-tip{display:block}
     <div id="eg-hint" class="hint"></div>
     <label>Who Received</label>
     <input type="text" id="eg-who" placeholder="e.g. Juan dela Cruz" autocomplete="off"/>
+    <label style="margin-top:12px">Purpose <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional)</span></label>
+    <input type="text" id="eg-purpose" placeholder="e.g. For office use" autocomplete="off"/>
     <label>Date Given</label>
     <div class="cal-wrap">
       <input type="text" id="eg-date-display" placeholder="Select a date" readonly onclick="openCal('edit')" autocomplete="off"/>
@@ -567,11 +575,11 @@ function renderTable(type){
       if(type==='current'){
         tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openInvEdit(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
       } else {
-        tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
+        tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.purpose||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
       }
     } else {
       tr.className='empty-row';
-      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?5:6);
+      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?5:7);
     }
     tbody.appendChild(tr);
   }
@@ -658,6 +666,7 @@ function openModal(type){
   document.getElementById('f-variety-select-wrap').style.display = 'none';
   document.getElementById('f-date-received-wrap').style.display  = type==='current'?'':'none';
   document.getElementById('f-who-wrap').style.display            = type==='given'?'':'none';
+  document.getElementById('f-purpose-wrap').style.display        = type==='given'?'':'none';
   document.getElementById('f-date-given-wrap').style.display     = type==='given'?'':'none';
 
   // Reset fields
@@ -665,6 +674,7 @@ function openModal(type){
   document.getElementById('f-variety').value='';
   document.getElementById('f-qty').value='';
   document.getElementById('f-who').value='';
+  document.getElementById('f-purpose').value='';
   document.getElementById('f-date-received-display').value='';
   document.getElementById('f-date-received').value='';
   document.getElementById('f-date-given-display').value='';
@@ -834,9 +844,10 @@ async function saveItem(){
       }
       const variety=document.getElementById('f-variety-select').value||null;
       const who=document.getElementById('f-who').value.trim();
+      const purpose=document.getElementById('f-purpose').value.trim()||null;
       const dateGiven=document.getElementById('f-date-given').value||null;
       const poNumberG=document.getElementById('f-po').value.trim()||null;
-      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,date_given:dateGiven,changed_by:null,po_number:poNumberG})});
+      await api('/api/given-out',{method:'POST',body:JSON.stringify({supply_name:supplyName,variety,quantity:qty,who_received:who||null,purpose,date_given:dateGiven,changed_by:null,po_number:poNumberG})});
       toast(qty+' unit'+(qty!==1?'s':'')+' of "'+supplyName+'" recorded!','success');
       closeModal(); await loadTable('current'); await loadTable('given');
     }
@@ -942,6 +953,7 @@ function openEditModal(id){
   document.getElementById('eg-variety').value=it.variety||'';
   document.getElementById('eg-qty').value=it.quantity;
   document.getElementById('eg-who').value=it.who_received||'';
+  document.getElementById('eg-purpose').value=it.purpose||'';
   document.getElementById('eg-date-display').value=isoToDisplay(it.date_given||'');
   document.getElementById('eg-date').value=it.date_given||'';
 
@@ -998,7 +1010,8 @@ async function saveEdit(){
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
     const poNumberE=document.getElementById('eg-po').value.trim()||null;
-    const payload={supply_name:egOrigSupply,quantity:qty,who_received:who||null,date_given:date,variety:document.getElementById('eg-variety').value||null,po_number:poNumberE};
+    const purposeE=document.getElementById('eg-purpose').value.trim()||null;
+    const payload={supply_name:egOrigSupply,quantity:qty,who_received:who||null,purpose:purposeE,date_given:date,variety:document.getElementById('eg-variety').value||null,po_number:poNumberE};
     console.log('PUT payload:', JSON.stringify(payload));
     await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify(payload)});
     toast('Record updated!','success');

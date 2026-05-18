@@ -27,6 +27,7 @@ def run_migrations():
         "ALTER TABLE given_out_items   ADD COLUMN IF NOT EXISTS changed_by  VARCHAR",
         "ALTER TABLE given_out_items   ADD COLUMN IF NOT EXISTS variety     VARCHAR",
         "ALTER TABLE given_out_items   ADD COLUMN IF NOT EXISTS po_number   VARCHAR",
+        "ALTER TABLE given_out_items   ADD COLUMN IF NOT EXISTS purpose     VARCHAR",
         "ALTER TABLE inventory_items   ADD COLUMN IF NOT EXISTS changed_by  VARCHAR",
         "ALTER TABLE inventory_items   ADD COLUMN IF NOT EXISTS variety     VARCHAR",
         "ALTER TABLE inventory_items   ADD COLUMN IF NOT EXISTS po_number   VARCHAR",
@@ -70,9 +71,10 @@ def refresh_flags():
     HAS_PO_INV        = col_exists("inventory_items",  "po_number")
     HAS_PO_GIVEN      = col_exists("given_out_items",  "po_number")
     HAS_PO_TXN        = col_exists("transaction_log",  "po_number")
+    HAS_PURPOSE_GIVEN = col_exists("given_out_items",  "purpose")
     print(f"Columns — inv.variety:{HAS_VARIETY} giv.variety:{HAS_VARIETY_GIVEN} txn.variety:{HAS_VARIETY_TXN}", flush=True)
 
-HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = HAS_VARIETY = HAS_VARIETY_GIVEN = HAS_VARIETY_TXN = HAS_PO_INV = HAS_PO_GIVEN = HAS_PO_TXN = False
+HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = HAS_VARIETY = HAS_VARIETY_GIVEN = HAS_VARIETY_TXN = HAS_PO_INV = HAS_PO_GIVEN = HAS_PO_TXN = HAS_PURPOSE_GIVEN = False
 refresh_flags()
 
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
@@ -261,6 +263,7 @@ def get_given_out(search: str = "", db: Session = Depends(get_db)):
                 "who_received": r.get("who_received") or "",
                 "date_given":   r.get("date_given") or "",
                 "changed_by":   r.get("changed_by") or "",
+                "purpose":      r.get("purpose") or "",
             }
             for r in rows
         ]
@@ -292,6 +295,8 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
         # Insert given-out row — include variety if column exists
         # Try full insert with all optional columns, fallback gracefully
         for giv_sql, giv_p in [
+            ("INSERT INTO given_out_items (supply_name,variety,quantity,who_received,purpose,date_given,changed_by,po_number) VALUES (:sn,:v,:qty,:who,:pur,:dg,:cb,:po)",
+             {"sn":item.supply_name,"v":variety,"qty":item.quantity,"who":item.who_received,"pur":item.purpose,"dg":item.date_given,"cb":item.changed_by,"po":item.po_number}),
             ("INSERT INTO given_out_items (supply_name,variety,quantity,who_received,date_given,changed_by,po_number) VALUES (:sn,:v,:qty,:who,:dg,:cb,:po)",
              {"sn":item.supply_name,"v":variety,"qty":item.quantity,"who":item.who_received,"dg":item.date_given,"cb":item.changed_by,"po":item.po_number}),
             ("INSERT INTO given_out_items (supply_name,variety,quantity,who_received,date_given,changed_by) VALUES (:sn,:v,:qty,:who,:dg,:cb)",
@@ -368,8 +373,9 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
         # Update — use flags to decide columns
         if HAS_DATE_GIVEN and HAS_CB_GIVEN and HAS_PO_GIVEN:
             db.execute(text(
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, purpose=:pur, date_given=:dg, changed_by=:cb, po_number=:po WHERE id=:id" if HAS_PURPOSE_GIVEN else
                 "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg, changed_by=:cb, po_number=:po WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by, "po": item.po_number, "id": item_id})
+            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "pur": item.purpose, "dg": item.date_given, "cb": item.changed_by, "po": item.po_number, "id": item_id})
         elif HAS_DATE_GIVEN and HAS_CB_GIVEN:
             db.execute(text(
                 "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg, changed_by=:cb WHERE id=:id"

@@ -23,6 +23,7 @@ class GivenOutItem(Base):
     variety      = Column(String, nullable=True)
     quantity     = Column(Integer, nullable=False, default=0)
     who_received = Column(String, nullable=True)
+    purpose      = Column(String, nullable=True)
     date_given   = Column(String, nullable=True)
     changed_by   = Column(String, nullable=True)
 

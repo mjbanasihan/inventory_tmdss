@@ -22,6 +22,7 @@ class GivenOutItemCreate(BaseModel):
     po_number:    Optional[str] = None
     variety:      Optional[str] = None
     who_received: Optional[str] = None
+    purpose:      Optional[str] = None
     date_given:   Optional[str] = None
     changed_by:   Optional[str] = None
 
