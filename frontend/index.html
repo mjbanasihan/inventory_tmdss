@@ -1013,9 +1013,12 @@ async function saveEdit(){
     const purposeE=document.getElementById('eg-purpose').value.trim()||null;
     const payload={supply_name:egOrigSupply,quantity:qty,who_received:who||null,purpose:purposeE,date_given:date,variety:document.getElementById('eg-variety').value||null,po_number:poNumberE};
     console.log('PUT payload:', JSON.stringify(payload));
-    await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify(payload)});
+    const updated=await api('/api/given-out/'+id,{method:'PUT',body:JSON.stringify(payload)});
+    // Patch local cache immediately so the table reflects changes before re-fetch arrives
+    const idx=givenItems.findIndex(x=>x.id===id);
+    if(idx>=0) givenItems[idx]={...givenItems[idx],...(updated||{}), purpose:purposeE||'', who_received:who||'', date_given:date||'', po_number:poNumberE||''};
     toast('Record updated!','success');
-    closeEditModal(); loadTable('current'); loadTable('given');
+    closeEditModal(); renderTable('given'); loadTable('current'); loadTable('given');
   }catch(e){
     console.error('saveEdit error:', e);
     toast('Save failed: '+e.message,'error');
