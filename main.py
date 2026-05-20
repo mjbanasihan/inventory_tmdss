@@ -59,7 +59,7 @@ def col_exists(table, col):
 
 # Re-detect after migrations have run
 def refresh_flags():
-    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY, HAS_VARIETY_GIVEN, HAS_VARIETY_TXN, HAS_PO_INV, HAS_PO_GIVEN, HAS_PO_TXN
+    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY, HAS_VARIETY_GIVEN, HAS_VARIETY_TXN, HAS_PO_INV, HAS_PO_GIVEN, HAS_PO_TXN, HAS_PURPOSE_GIVEN
     HAS_DATE_GIVEN    = col_exists("given_out_items", "date_given")
     HAS_CB_GIVEN      = col_exists("given_out_items", "changed_by")
     HAS_TXN_DATE      = col_exists("transaction_log",  "date_given")
