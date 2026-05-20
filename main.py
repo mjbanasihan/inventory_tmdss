@@ -36,6 +36,7 @@ def run_migrations():
         "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS created_at  VARCHAR",
         "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS variety     VARCHAR",
         "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS po_number   VARCHAR",
+        "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS purpose     VARCHAR",
     ]
     for sql in migrations:
         try:
@@ -85,10 +86,14 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def on_startup():
     refresh_flags()
 
-def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None, variety=None, po_number=None):
+def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None, variety=None, po_number=None, purpose=None):
     """Append to transaction_log. Uses savepoints so failures never roll back the caller's data."""
     ca = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
     for sql, params in [
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,variety,quantity,detail,purpose,date_given,changed_by,created_at,po_number) VALUES (:t,:sn,:v,:qty,:det,:pur,:dg,:cb,:ca,:po)",
+            {"t":txn_type,"sn":supply_name,"v":variety,"qty":quantity,"det":detail,"pur":purpose,"dg":date_given,"cb":changed_by,"ca":ca,"po":po_number}
+        ),
         (
             "INSERT INTO transaction_log (txn_type,supply_name,variety,quantity,detail,date_given,changed_by,created_at,po_number) VALUES (:t,:sn,:v,:qty,:det,:dg,:cb,:ca,:po)",
             {"t":txn_type,"sn":supply_name,"v":variety,"qty":quantity,"det":detail,"dg":date_given,"cb":changed_by,"ca":ca,"po":po_number}
@@ -317,7 +322,7 @@ def create_given_out_item(item: schemas.GivenOutItemCreate, db: Session = Depend
 
         # Log transaction — include variety if column exists
         write_log(db, "given_out", item.supply_name, item.quantity,
-                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by, variety=variety, po_number=item.po_number)
+                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by, variety=variety, po_number=item.po_number, purpose=item.purpose)
 
         db.commit()
 
@@ -398,7 +403,7 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
         # Log the edit — carry variety from existing record
         variety_to_log = item.variety or current.get("variety") or None
         write_log(db, "given_out_edited", item.supply_name, item.quantity,
-                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by, variety=variety_to_log, po_number=item.po_number)
+                  detail=item.who_received, date_given=item.date_given, changed_by=item.changed_by, variety=variety_to_log, po_number=item.po_number, purpose=item.purpose)
         db.commit()
 
         updated = db.execute(text("SELECT * FROM given_out_items WHERE id=:id"), {"id": item_id}).mappings().first()
@@ -460,46 +465,36 @@ def get_summary(db: Session = Depends(get_db)):
         logs = [dict(r) for r in result]
 
         # Fetch given_out_items to backfill missing date_given in log
+        # (purpose is now stored directly in transaction_log — no backfill needed for it)
         try:
-            gi_rows = db.execute(text("SELECT supply_name, who_received, date_given, purpose FROM given_out_items")).mappings().all()
+            gi_rows = db.execute(text("SELECT supply_name, who_received, date_given FROM given_out_items")).mappings().all()
             # Build two maps for matching:
             # 1. (supply_name, who_received) -> date_given  (precise match)
             # 2. supply_name -> date_given                  (fallback)
             gi_map_precise = {}
             gi_map_supply  = {}
-            gi_purpose_map = {}
             for gi in gi_rows:
                 sn  = (gi["supply_name"] or "").lower()
                 who = (gi.get("who_received") or "").lower()
                 dg  = gi.get("date_given")
-                pur = gi.get("purpose")
                 if dg:
                     key_precise = (sn, who)
                     if key_precise not in gi_map_precise:
                         gi_map_precise[key_precise] = dg
                     if sn not in gi_map_supply:
                         gi_map_supply[sn] = dg
-                if pur:
-                    key_precise = (sn, who)
-                    if key_precise not in gi_purpose_map:
-                        gi_purpose_map[key_precise] = pur
         except Exception:
             gi_map_precise = {}
             gi_map_supply  = {}
 
-        # Backfill date_given and purpose from given_out_items where missing in log
+        # Backfill date_given from given_out_items where missing in log
         for l in logs:
-            if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted"):
+            if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted") and not l.get("date_given"):
                 sn  = (l.get("supply_name") or "").lower()
                 who = (l.get("detail") or "").lower()  # detail = who_received in log
-                if not l.get("date_given"):
-                    dg  = gi_map_precise.get((sn, who)) or gi_map_supply.get(sn)
-                    if dg:
-                        l["date_given"] = dg
-                if not l.get("purpose"):
-                    pur = gi_purpose_map.get((sn, who))
-                    if pur:
-                        l["purpose"] = pur
+                dg  = gi_map_precise.get((sn, who)) or gi_map_supply.get(sn)
+                if dg:
+                    l["date_given"] = dg
 
         inv_logs = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_edited", "inventory_deleted")]
         giv_logs = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted")]
