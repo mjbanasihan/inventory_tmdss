@@ -485,13 +485,42 @@ def delete_given_out_item(item_id: int, db: Session = Depends(get_db)):
 
 # ─── DELETE LOG ENTRY ────────────────────────────────────────────────────────
 
-@app.delete("/api/log/{log_id}", status_code=204)
+@app.delete("/api/log/{log_id}")
 def delete_log_entry(log_id: int, db: Session = Depends(get_db)):
-    row = db.execute(text("SELECT id FROM transaction_log WHERE id=:id"), {"id": log_id}).mappings().first()
+    row = db.execute(text("SELECT * FROM transaction_log WHERE id=:id"), {"id": log_id}).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Log entry not found")
+    deleted = dict(row)
     db.execute(text("DELETE FROM transaction_log WHERE id=:id"), {"id": log_id})
     db.commit()
+    return deleted
+
+
+@app.post("/api/log/restore", status_code=201)
+def restore_log_entry(entry: dict, db: Session = Depends(get_db)):
+    """Re-insert a previously deleted transaction_log row (for undo)."""
+    for sql, params in [
+        (
+            "INSERT INTO transaction_log (id,txn_type,supply_name,variety,quantity,detail,purpose,location,date_given,changed_by,created_at,po_number) VALUES (:id,:t,:sn,:v,:qty,:det,:pur,:loc,:dg,:cb,:ca,:po)",
+            {"id":entry.get("id"),"t":entry.get("txn_type"),"sn":entry.get("supply_name"),"v":entry.get("variety"),"qty":entry.get("quantity",0),"det":entry.get("detail"),"pur":entry.get("purpose"),"loc":entry.get("location"),"dg":entry.get("date_given"),"cb":entry.get("changed_by"),"ca":entry.get("created_at"),"po":entry.get("po_number")}
+        ),
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,variety,quantity,detail,date_given,changed_by,created_at,po_number) VALUES (:t,:sn,:v,:qty,:det,:dg,:cb,:ca,:po)",
+            {"t":entry.get("txn_type"),"sn":entry.get("supply_name"),"v":entry.get("variety"),"qty":entry.get("quantity",0),"det":entry.get("detail"),"dg":entry.get("date_given"),"cb":entry.get("changed_by"),"ca":entry.get("created_at"),"po":entry.get("po_number")}
+        ),
+        (
+            "INSERT INTO transaction_log (txn_type,supply_name,quantity,detail,created_at) VALUES (:t,:sn,:qty,:det,:ca)",
+            {"t":entry.get("txn_type"),"sn":entry.get("supply_name"),"qty":entry.get("quantity",0),"det":entry.get("detail"),"ca":entry.get("created_at")}
+        ),
+    ]:
+        try:
+            with db.begin_nested():
+                db.execute(text(sql), params)
+            db.commit()
+            return {"ok": True}
+        except Exception:
+            pass
+    raise HTTPException(status_code=500, detail="Failed to restore log entry")
 
 
 # ─── SUMMARY — reads from transaction log ────────────────────────────────────

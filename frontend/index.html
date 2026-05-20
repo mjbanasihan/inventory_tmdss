@@ -137,6 +137,9 @@ tbody tr:hover .del-btn,tbody tr:hover .row-edit-btn{opacity:.6}
     .month-select{font-family:inherit;font-size:.78rem;font-weight:600;color:var(--text);border:1.5px solid var(--border);border-radius:8px;padding:5px 12px;background:#fff;cursor:pointer;outline:none;transition:border-color .14s}
     .month-select:focus,.month-select:hover{border-color:var(--navy)}
 .export-btns{display:flex;gap:8px;margin-left:auto}
+.btn-undoredo{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:.78rem;font-family:inherit;font-weight:600;cursor:pointer;transition:all .14s}
+.btn-undoredo:hover:not(:disabled){border-color:var(--navy);color:var(--navy);background:#f0f0ff}
+.btn-undoredo:disabled{opacity:.35;cursor:not-allowed}
 .btn-export{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1.5px solid var(--border);color:var(--text);border-radius:8px;padding:6px 14px;font-size:.78rem;font-family:inherit;font-weight:600;cursor:pointer;transition:all .14s}
 .btn-export:hover{border-color:var(--navy);color:var(--navy);background:#f0f0ff}
 .btn-export.pdf{background:var(--navy);color:#fff;border-color:var(--navy)}
@@ -280,6 +283,16 @@ tbody tr:hover .row-tip{display:block}
     <div class="search-wrap" style="width:200px">
       <input type="text" placeholder="Search transactions" id="search-summary" oninput="renderSummaryTable()"/>
       <span class="search-icon"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="#888" stroke-width="2"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#888" stroke-width="2" stroke-linecap="round"/></svg></span>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="btn-undoredo" id="btn-undo" onclick="undoLog()" disabled title="Undo last delete">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M3 10a7 7 0 1 0 1.5-4.33" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="3,4 3,10 9,10" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        Undo
+      </button>
+      <button class="btn-undoredo" id="btn-redo" onclick="redoLog()" disabled title="Redo last undo">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M17 10a7 7 0 1 1-1.5-4.33" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="17,4 17,10 11,10" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        Redo
+      </button>
     </div>
     <div class="export-btns">
 
@@ -1178,14 +1191,48 @@ function renderSummaryTable(){
   }
 }
 
+// ── UNDO / REDO STACK ────────────────────────────────────────────────────
+const undoStack=[], redoStack=[];
+function syncUndoRedo(){
+  document.getElementById('btn-undo').disabled=undoStack.length===0;
+  document.getElementById('btn-redo').disabled=redoStack.length===0;
+}
+
 // ── DELETE LOG ENTRY ──────────────────────────────────────────────────────
 async function delLog(id){
   if(!id) return;
   try{
-    await api('/api/log/'+id,{method:'DELETE'});
-    toast('Entry removed','success');
+    const deleted=await api('/api/log/'+id,{method:'DELETE'});
+    undoStack.push(deleted);
+    redoStack.length=0; // clear redo on new delete
+    syncUndoRedo();
+    toast('Entry removed — Undo available','success');
     loadSummary();
   }catch(e){ toast('Delete failed: '+e.message,'error'); }
+}
+
+async function undoLog(){
+  if(!undoStack.length) return;
+  const entry=undoStack.pop();
+  try{
+    await api('/api/log/restore',{method:'POST',body:JSON.stringify(entry)});
+    redoStack.push(entry);
+    syncUndoRedo();
+    toast('Undo successful','success');
+    loadSummary();
+  }catch(e){ undoStack.push(entry); toast('Undo failed: '+e.message,'error'); }
+}
+
+async function redoLog(){
+  if(!redoStack.length) return;
+  const entry=redoStack.pop();
+  try{
+    const deleted=await api('/api/log/'+entry.id,{method:'DELETE'});
+    undoStack.push(deleted||entry);
+    syncUndoRedo();
+    toast('Redo successful','success');
+    loadSummary();
+  }catch(e){ redoStack.push(entry); toast('Redo failed: '+e.message,'error'); }
 }
 
 // ── PRINT / PDF ────────────────────────────────────────────────────────────
