@@ -59,7 +59,7 @@ def col_exists(table, col):
 
 # Re-detect after migrations have run
 def refresh_flags():
-    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY, HAS_VARIETY_GIVEN, HAS_VARIETY_TXN, HAS_PO_INV, HAS_PO_GIVEN, HAS_PO_TXN, HAS_PURPOSE_GIVEN
+    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY, HAS_VARIETY_GIVEN, HAS_VARIETY_TXN, HAS_PO_INV, HAS_PO_GIVEN, HAS_PO_TXN
     HAS_DATE_GIVEN    = col_exists("given_out_items", "date_given")
     HAS_CB_GIVEN      = col_exists("given_out_items", "changed_by")
     HAS_TXN_DATE      = col_exists("transaction_log",  "date_given")
@@ -461,34 +461,45 @@ def get_summary(db: Session = Depends(get_db)):
 
         # Fetch given_out_items to backfill missing date_given in log
         try:
-            gi_rows = db.execute(text("SELECT supply_name, who_received, date_given FROM given_out_items")).mappings().all()
+            gi_rows = db.execute(text("SELECT supply_name, who_received, date_given, purpose FROM given_out_items")).mappings().all()
             # Build two maps for matching:
             # 1. (supply_name, who_received) -> date_given  (precise match)
             # 2. supply_name -> date_given                  (fallback)
             gi_map_precise = {}
             gi_map_supply  = {}
+            gi_purpose_map = {}
             for gi in gi_rows:
                 sn  = (gi["supply_name"] or "").lower()
                 who = (gi.get("who_received") or "").lower()
                 dg  = gi.get("date_given")
+                pur = gi.get("purpose")
                 if dg:
                     key_precise = (sn, who)
                     if key_precise not in gi_map_precise:
                         gi_map_precise[key_precise] = dg
                     if sn not in gi_map_supply:
                         gi_map_supply[sn] = dg
+                if pur:
+                    key_precise = (sn, who)
+                    if key_precise not in gi_purpose_map:
+                        gi_purpose_map[key_precise] = pur
         except Exception:
             gi_map_precise = {}
             gi_map_supply  = {}
 
-        # Backfill date_given from given_out_items where missing in log
+        # Backfill date_given and purpose from given_out_items where missing in log
         for l in logs:
-            if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted") and not l.get("date_given"):
+            if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted"):
                 sn  = (l.get("supply_name") or "").lower()
                 who = (l.get("detail") or "").lower()  # detail = who_received in log
-                dg  = gi_map_precise.get((sn, who)) or gi_map_supply.get(sn)
-                if dg:
-                    l["date_given"] = dg
+                if not l.get("date_given"):
+                    dg  = gi_map_precise.get((sn, who)) or gi_map_supply.get(sn)
+                    if dg:
+                        l["date_given"] = dg
+                if not l.get("purpose"):
+                    pur = gi_purpose_map.get((sn, who))
+                    if pur:
+                        l["purpose"] = pur
 
         inv_logs = [l for l in logs if l.get("txn_type") in ("inventory", "inventory_edited", "inventory_deleted")]
         giv_logs = [l for l in logs if l.get("txn_type") in ("given_out", "given_out_edited", "given_out_deleted")]
@@ -502,6 +513,7 @@ def get_summary(db: Session = Depends(get_db)):
                 "variety":     l.get("variety"),
                 "quantity":    l.get("quantity", 0),
                 "detail":      l.get("detail"),
+                "purpose":     l.get("purpose"),
                 "date_given":  l.get("date_given"),
                 "changed_by":  l.get("changed_by"),
                 "created_at":  l.get("created_at"),

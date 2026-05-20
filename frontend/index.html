@@ -305,7 +305,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th></th></tr></thead>
+        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Purpose</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -1101,6 +1101,7 @@ function renderSummaryTable(){
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
           recipient: '—',
+          purpose: '',
           edited_by: it.changed_by||''});
       });
     }
@@ -1116,6 +1117,7 @@ function renderSummaryTable(){
           isoDate, logId: it.id, createdAt: it.created_at||'',
           date: isoToDisplay(isoDate)||'—',
           recipient: (it.detail||'—'),
+          purpose: (it.purpose||''),
           edited_by: it.changed_by||''});
       });
     }
@@ -1134,6 +1136,7 @@ function renderSummaryTable(){
       (r.name||'').toLowerCase().includes(search)||
       (r.po_number||'').toLowerCase().includes(search)||
       (r.variety||'').toLowerCase().includes(search)||
+      (r.purpose||'').toLowerCase().includes(search)||
       (r.date||'').toLowerCase().includes(search)||
       (r.isoDate||'').toLowerCase().includes(search)
     );
@@ -1148,6 +1151,7 @@ function renderSummaryTable(){
         <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
         <td style="font-size:.82rem">${esc(r.date)}</td>
+        <td style="color:var(--muted);font-size:.82rem">${esc(r.purpose||'')}</td>
         <td><button class="del-btn" style="opacity:.5" onclick="delLog(${r.logId})" title="Delete">✕</button></td>
       </tr>`).join('');
   } catch(err) {
@@ -1201,7 +1205,7 @@ function exportPDF(){
       const label=it.txn_type==='inventory_deleted'?'Received - Deleted':it.txn_type==='inventory_edited'?'Received - Edited':'Received';
       pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',
         po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
-        qty:String(it.quantity),date:isoToDisplay(it.detail||'')||'—'});
+        qty:String(it.quantity),date:isoToDisplay(it.detail||'')||'—',purpose:''});
     });
   if(summaryFilter!=='inventory')
     summaryData.given_out.items.forEach(it=>{
@@ -1209,7 +1213,7 @@ function exportPDF(){
       const label=it.txn_type==='given_out_deleted'?'Given Out - Deleted':it.txn_type==='given_out_edited'?'Given Out - Edited':'Given Out';
       pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',
         po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
-        qty:String(it.quantity),date:isoToDisplay(it.date_given||'')||'—'});
+        qty:String(it.quantity),date:isoToDisplay(it.date_given||'')||'—',purpose:it.purpose||''});
     });
 
   const mf=document.getElementById('month-filter').value;
@@ -1223,15 +1227,17 @@ function exportPDF(){
   const _dm=['January','February','March','April','May','June','July','August','September','October','November','December'][_d.getMonth()];
   const _dy=_d.getFullYear();
 
-  // Portrait A4 usable width: 210 - 24 = 186mm
-  // PO:22 TYPE:26 SUPPLY:52 VARIETY:28 QTY:12 DATE:46 = 186
+  // Landscape A4 usable width: 297 - 24 = 273mm
+  // PO:20 TYPE:38 SUPPLY:52 VARIETY:30 QTY:12 DATE:44 PURPOSE:38 = 234... use portrait + compress
+  // Portrait A4 usable: 210-24=186mm → PO:18 TYPE:34 SUPPLY:42 VARIETY:22 QTY:10 DATE:34 PURPOSE:26 = 186
   const cols=[
-    {key:'po',      label:'P.O. NO.',                       w:22, bold:true,  muted:false, badge:false},
-    {key:'label',   label:'TYPE',                           w:36, bold:false, muted:false, badge:true },
-    {key:'name',    label:'SUPPLY NAME',                    w:46, bold:false, muted:false, badge:false},
-    {key:'variety', label:'VARIETY',                        w:28, bold:false, muted:true,  badge:false},
-    {key:'qty',     label:'QTY',                            w:12, bold:true,  muted:false, badge:false},
-    {key:'date',    label:'DATE RECEIVED / DATE GIVEN OUT', w:46, bold:false, muted:false, badge:false},
+    {key:'po',      label:'P.O. NO.',                       w:18, bold:true,  muted:false, badge:false},
+    {key:'label',   label:'TYPE',                           w:34, bold:false, muted:false, badge:true },
+    {key:'name',    label:'SUPPLY NAME',                    w:42, bold:false, muted:false, badge:false},
+    {key:'variety', label:'VARIETY',                        w:22, bold:false, muted:true,  badge:false},
+    {key:'qty',     label:'QTY',                            w:10, bold:true,  muted:false, badge:false},
+    {key:'date',    label:'DATE RECEIVED / DATE GIVEN OUT', w:34, bold:false, muted:false, badge:false},
+    {key:'purpose', label:'PURPOSE',                        w:26, bold:false, muted:true,  badge:false},
   ];
   const tableW=cols.reduce((s,col)=>s+col.w,0);
   const rowH=8, hdrH=9;
