@@ -375,28 +375,37 @@ def update_given_out_item(item_id: int, item: schemas.GivenOutItemCreate, db: Se
                     "INSERT INTO inventory_items (supply_name, variety, quantity) VALUES (:sn, :v, :qty)"
                 ), {"sn": item.supply_name, "v": variety_restore, "qty": abs(qty_diff)})
 
-        # Update — use flags to decide columns
-        if HAS_DATE_GIVEN and HAS_CB_GIVEN and HAS_PO_GIVEN:
-            db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, purpose=:pur, date_given=:dg, changed_by=:cb, po_number=:po WHERE id=:id" if HAS_PURPOSE_GIVEN else
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg, changed_by=:cb, po_number=:po WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "pur": item.purpose, "dg": item.date_given, "cb": item.changed_by, "po": item.po_number, "id": item_id})
-        elif HAS_DATE_GIVEN and HAS_CB_GIVEN:
-            db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg, changed_by=:cb WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "cb": item.changed_by, "id": item_id})
-        elif HAS_DATE_GIVEN:
-            db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, date_given=:dg WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "dg": item.date_given, "id": item_id})
-        elif HAS_CB_GIVEN:
-            db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, changed_by=:cb WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "cb": item.changed_by, "id": item_id})
-        else:
-            db.execute(text(
-                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id"
-            ), {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id})
+        # Update — always write all columns (migrations guarantee they exist)
+        for upd_sql, upd_p in [
+            (
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, purpose=:pur, date_given=:dg, changed_by=:cb, po_number=:po WHERE id=:id",
+                {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "pur": item.purpose, "dg": item.date_given, "cb": item.changed_by, "po": item.po_number, "id": item_id}
+            ),
+            (
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, purpose=:pur, date_given=:dg, changed_by=:cb WHERE id=:id",
+                {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "pur": item.purpose, "dg": item.date_given, "cb": item.changed_by, "id": item_id}
+            ),
+            (
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, purpose=:pur, date_given=:dg WHERE id=:id",
+                {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "pur": item.purpose, "dg": item.date_given, "id": item_id}
+            ),
+            (
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who, purpose=:pur WHERE id=:id",
+                {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "pur": item.purpose, "id": item_id}
+            ),
+            (
+                "UPDATE given_out_items SET supply_name=:sn, quantity=:qty, who_received=:who WHERE id=:id",
+                {"sn": item.supply_name, "qty": item.quantity, "who": item.who_received, "id": item_id}
+            ),
+        ]:
+            try:
+                db.execute(text("SAVEPOINT upd_sp"))
+                db.execute(text(upd_sql), upd_p)
+                db.execute(text("RELEASE SAVEPOINT upd_sp"))
+                break
+            except Exception:
+                try: db.execute(text("ROLLBACK TO SAVEPOINT upd_sp"))
+                except: pass
 
         db.commit()
 
