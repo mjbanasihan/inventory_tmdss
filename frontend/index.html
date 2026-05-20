@@ -1376,6 +1376,19 @@ function exportPDF(){
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────
+// Auto title-case on all free-text inputs as user types
+['f-name','f-variety','f-location','f-who','f-purpose',
+ 'ie-name','ie-variety','ie-location',
+ 'eg-who','eg-purpose'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('input',function(){
+    const pos=this.selectionStart;
+    this.value=toTitleCase(this.value);
+    this.setSelectionRange(pos,pos);
+  });
+});
+
 loadTable('current');
 loadTable('given');
 setInterval(()=>{ loadTable('current',true); loadTable('given',true); },15000);
