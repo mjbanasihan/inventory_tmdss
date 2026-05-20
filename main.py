@@ -37,6 +37,8 @@ def run_migrations():
         "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS variety     VARCHAR",
         "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS po_number   VARCHAR",
         "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS purpose     VARCHAR",
+        "ALTER TABLE inventory_items   ADD COLUMN IF NOT EXISTS location    VARCHAR",
+        "ALTER TABLE transaction_log   ADD COLUMN IF NOT EXISTS location    VARCHAR",
     ]
     for sql in migrations:
         try:
@@ -60,7 +62,7 @@ def col_exists(table, col):
 
 # Re-detect after migrations have run
 def refresh_flags():
-    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY, HAS_VARIETY_GIVEN, HAS_VARIETY_TXN, HAS_PO_INV, HAS_PO_GIVEN, HAS_PO_TXN
+    global HAS_DATE_GIVEN, HAS_CB_GIVEN, HAS_TXN_DATE, HAS_CB_TXN, HAS_CB_INV, HAS_VARIETY, HAS_VARIETY_GIVEN, HAS_VARIETY_TXN, HAS_PO_INV, HAS_PO_GIVEN, HAS_PO_TXN, HAS_PURPOSE_GIVEN, HAS_LOCATION_INV
     HAS_DATE_GIVEN    = col_exists("given_out_items", "date_given")
     HAS_CB_GIVEN      = col_exists("given_out_items", "changed_by")
     HAS_TXN_DATE      = col_exists("transaction_log",  "date_given")
@@ -73,9 +75,10 @@ def refresh_flags():
     HAS_PO_GIVEN      = col_exists("given_out_items",  "po_number")
     HAS_PO_TXN        = col_exists("transaction_log",  "po_number")
     HAS_PURPOSE_GIVEN = col_exists("given_out_items",  "purpose")
+    HAS_LOCATION_INV  = col_exists("inventory_items",  "location")
     print(f"Columns — inv.variety:{HAS_VARIETY} giv.variety:{HAS_VARIETY_GIVEN} txn.variety:{HAS_VARIETY_TXN}", flush=True)
 
-HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = HAS_VARIETY = HAS_VARIETY_GIVEN = HAS_VARIETY_TXN = HAS_PO_INV = HAS_PO_GIVEN = HAS_PO_TXN = HAS_PURPOSE_GIVEN = False
+HAS_DATE_GIVEN = HAS_CB_GIVEN = HAS_TXN_DATE = HAS_CB_TXN = HAS_CB_INV = HAS_VARIETY = HAS_VARIETY_GIVEN = HAS_VARIETY_TXN = HAS_PO_INV = HAS_PO_GIVEN = HAS_PO_TXN = HAS_PURPOSE_GIVEN = HAS_LOCATION_INV = False
 refresh_flags()
 
 app = FastAPI(title="TSD-TMDSS Inventory API", version="1.0.0")
@@ -86,13 +89,13 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def on_startup():
     refresh_flags()
 
-def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None, variety=None, po_number=None, purpose=None):
+def write_log(db, txn_type, supply_name, quantity, detail=None, date_given=None, changed_by=None, variety=None, po_number=None, purpose=None, location=None):
     """Append to transaction_log. Uses savepoints so failures never roll back the caller's data."""
     ca = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
     for sql, params in [
         (
-            "INSERT INTO transaction_log (txn_type,supply_name,variety,quantity,detail,purpose,date_given,changed_by,created_at,po_number) VALUES (:t,:sn,:v,:qty,:det,:pur,:dg,:cb,:ca,:po)",
-            {"t":txn_type,"sn":supply_name,"v":variety,"qty":quantity,"det":detail,"pur":purpose,"dg":date_given,"cb":changed_by,"ca":ca,"po":po_number}
+            "INSERT INTO transaction_log (txn_type,supply_name,variety,quantity,detail,purpose,location,date_given,changed_by,created_at,po_number) VALUES (:t,:sn,:v,:qty,:det,:pur,:loc,:dg,:cb,:ca,:po)",
+            {"t":txn_type,"sn":supply_name,"v":variety,"qty":quantity,"det":detail,"pur":purpose,"loc":location,"dg":date_given,"cb":changed_by,"ca":ca,"po":po_number}
         ),
         (
             "INSERT INTO transaction_log (txn_type,supply_name,variety,quantity,detail,date_given,changed_by,created_at,po_number) VALUES (:t,:sn,:v,:qty,:det,:dg,:cb,:ca,:po)",
@@ -131,7 +134,7 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
     try:
         if search:
             rows = db.execute(text(
-                "SELECT * FROM inventory_items WHERE LOWER(supply_name) LIKE LOWER(:s) OR LOWER(COALESCE(variety,''::varchar)) LIKE LOWER(:s) OR LOWER(COALESCE(po_number,''::varchar)) LIKE LOWER(:s) OR LOWER(COALESCE(date_received,''::varchar)) LIKE LOWER(:s) OR LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''),'YYYY-MM-DD'),'DD Month YYYY')) LIKE LOWER(:s) OR LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''),'YYYY-MM-DD'),'DD Mon YYYY')) LIKE LOWER(:s) ORDER BY date_received DESC NULLS LAST, id DESC"
+                "SELECT * FROM inventory_items WHERE LOWER(supply_name) LIKE LOWER(:s) OR LOWER(COALESCE(variety,''::varchar)) LIKE LOWER(:s) OR LOWER(COALESCE(po_number,''::varchar)) LIKE LOWER(:s) OR LOWER(COALESCE(location,''::varchar)) LIKE LOWER(:s) OR LOWER(COALESCE(date_received,''::varchar)) LIKE LOWER(:s) OR LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''),'YYYY-MM-DD'),'DD Month YYYY')) LIKE LOWER(:s) OR LOWER(TO_CHAR(TO_DATE(NULLIF(date_received,''),'YYYY-MM-DD'),'DD Mon YYYY')) LIKE LOWER(:s) ORDER BY date_received DESC NULLS LAST, id DESC"
             ), {"s": f"%{search}%"}).mappings().all()
         else:
             rows = db.execute(text(
@@ -146,6 +149,7 @@ def get_inventory(search: str = "", db: Session = Depends(get_db)):
                 "quantity":      r["quantity"],
                 "date_received": r.get("date_received") or "",
                 "changed_by":    r.get("changed_by") or "",
+                "location":      r.get("location") or "",
             }
             for r in rows
         ]
@@ -166,33 +170,51 @@ def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depen
         if existing:
             new_qty = existing["quantity"] + item.quantity
             dr = item.date_received or existing.get("date_received")
-            if HAS_VARIETY and HAS_PO_INV:
-                db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb,po_number=:po WHERE id=:id"),
-                    {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "po": item.po_number, "id": existing["id"]})
-            elif HAS_VARIETY:
-                db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb WHERE id=:id"),
-                    {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "id": existing["id"]})
-            else:
-                db.execute(text("UPDATE inventory_items SET quantity=:qty,date_received=:dr WHERE id=:id"),
-                    {"qty": new_qty, "dr": dr, "id": existing["id"]})
+            for inv_upd_sql, inv_upd_p in [
+                ("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb,po_number=:po,location=:loc WHERE id=:id",
+                 {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "po": item.po_number, "loc": item.location, "id": existing["id"]}),
+                ("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb,po_number=:po WHERE id=:id",
+                 {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "po": item.po_number, "id": existing["id"]}),
+                ("UPDATE inventory_items SET quantity=:qty,date_received=:dr,variety=:v,changed_by=:cb WHERE id=:id",
+                 {"qty": new_qty, "dr": dr, "v": item.variety, "cb": item.changed_by, "id": existing["id"]}),
+                ("UPDATE inventory_items SET quantity=:qty,date_received=:dr WHERE id=:id",
+                 {"qty": new_qty, "dr": dr, "id": existing["id"]}),
+            ]:
+                try:
+                    db.execute(text("SAVEPOINT inv_upd_sp"))
+                    db.execute(text(inv_upd_sql), inv_upd_p)
+                    db.execute(text("RELEASE SAVEPOINT inv_upd_sp"))
+                    break
+                except Exception:
+                    try: db.execute(text("ROLLBACK TO SAVEPOINT inv_upd_sp"))
+                    except: pass
             db.commit()
             result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": existing["id"]}).mappings().first()
         else:
-            if HAS_VARIETY and HAS_PO_INV:
-                db.execute(text("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by,po_number) VALUES (:sn,:v,:qty,:dr,:cb,:po)"),
-                    {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "po": item.po_number})
-            elif HAS_VARIETY:
-                db.execute(text("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by) VALUES (:sn,:v,:qty,:dr,:cb)"),
-                    {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by})
-            else:
-                db.execute(text("INSERT INTO inventory_items (supply_name,quantity,date_received) VALUES (:sn,:qty,:dr)"),
-                    {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received})
+            for inv_ins_sql, inv_ins_p in [
+                ("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by,po_number,location) VALUES (:sn,:v,:qty,:dr,:cb,:po,:loc)",
+                 {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "po": item.po_number, "loc": item.location}),
+                ("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by,po_number) VALUES (:sn,:v,:qty,:dr,:cb,:po)",
+                 {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "po": item.po_number}),
+                ("INSERT INTO inventory_items (supply_name,variety,quantity,date_received,changed_by) VALUES (:sn,:v,:qty,:dr,:cb)",
+                 {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by}),
+                ("INSERT INTO inventory_items (supply_name,quantity,date_received) VALUES (:sn,:qty,:dr)",
+                 {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received}),
+            ]:
+                try:
+                    db.execute(text("SAVEPOINT inv_ins_sp"))
+                    db.execute(text(inv_ins_sql), inv_ins_p)
+                    db.execute(text("RELEASE SAVEPOINT inv_ins_sp"))
+                    break
+                except Exception:
+                    try: db.execute(text("ROLLBACK TO SAVEPOINT inv_ins_sp"))
+                    except: pass
             db.commit()
             result = db.execute(text("SELECT * FROM inventory_items WHERE LOWER(supply_name)=LOWER(:sn) ORDER BY id DESC LIMIT 1"),
                 {"sn": item.supply_name}).mappings().first()
 
         write_log(db, "inventory", item.supply_name, item.quantity,
-                  detail=item.date_received, changed_by=item.changed_by, variety=item.variety, po_number=item.po_number)
+                  detail=item.date_received, changed_by=item.changed_by, variety=item.variety, po_number=item.po_number, location=item.location)
         db.commit()
         return dict(result) if result else {"id": 0, "supply_name": item.supply_name, "quantity": item.quantity}
 
@@ -211,19 +233,28 @@ def update_inventory_item(item_id: int, item: schemas.InventoryItemCreate, db: S
         row = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
         if not row:
             raise HTTPException(status_code=404, detail="Item not found")
-        if HAS_VARIETY and HAS_PO_INV:
-            db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb,po_number=:po WHERE id=:id"),
-                {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "po": item.po_number, "id": item_id})
-        elif HAS_VARIETY:
-            db.execute(text("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id"),
-                {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id})
-        else:
-            db.execute(text("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id"),
-                {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id})
+        for put_sql, put_p in [
+            ("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb,po_number=:po,location=:loc WHERE id=:id",
+             {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "po": item.po_number, "loc": item.location, "id": item_id}),
+            ("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb,po_number=:po WHERE id=:id",
+             {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "po": item.po_number, "id": item_id}),
+            ("UPDATE inventory_items SET supply_name=:sn,variety=:v,quantity=:qty,date_received=:dr,changed_by=:cb WHERE id=:id",
+             {"sn": item.supply_name, "v": item.variety, "qty": item.quantity, "dr": item.date_received, "cb": item.changed_by, "id": item_id}),
+            ("UPDATE inventory_items SET supply_name=:sn,quantity=:qty,date_received=:dr WHERE id=:id",
+             {"sn": item.supply_name, "qty": item.quantity, "dr": item.date_received, "id": item_id}),
+        ]:
+            try:
+                db.execute(text("SAVEPOINT put_inv_sp"))
+                db.execute(text(put_sql), put_p)
+                db.execute(text("RELEASE SAVEPOINT put_inv_sp"))
+                break
+            except Exception:
+                try: db.execute(text("ROLLBACK TO SAVEPOINT put_inv_sp"))
+                except: pass
         db.commit()
         variety_to_log = item.variety or row.get("variety") or None
         write_log(db, "inventory_edited", item.supply_name, item.quantity,
-                  detail=item.date_received, changed_by=item.changed_by, variety=variety_to_log, po_number=item.po_number)
+                  detail=item.date_received, changed_by=item.changed_by, variety=variety_to_log, po_number=item.po_number, location=item.location)
         db.commit()
         result = db.execute(text("SELECT * FROM inventory_items WHERE id=:id"), {"id": item_id}).mappings().first()
         print(f"PUT inventory — result variety={dict(result).get('variety')!r}", flush=True)
@@ -518,6 +549,7 @@ def get_summary(db: Session = Depends(get_db)):
                 "quantity":    l.get("quantity", 0),
                 "detail":      l.get("detail"),
                 "purpose":     l.get("purpose"),
+                "location":    l.get("location"),
                 "date_given":  l.get("date_given"),
                 "changed_by":  l.get("changed_by"),
                 "created_at":  l.get("created_at"),

@@ -225,7 +225,7 @@ tbody tr:hover .row-tip{display:block}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>P.O. No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Date Received</th><th></th></tr></thead>
+          <thead><tr><th>P.O. No.</th><th>Supply Name</th><th>Variety</th><th>Quantity</th><th>Date Received</th><th>Location</th><th></th></tr></thead>
           <tbody id="tbody-current"></tbody>
         </table>
 
@@ -305,7 +305,7 @@ tbody tr:hover .row-tip{display:block}
     </div>
     <div class="table-wrap" style="max-height:480px;border-radius:0">
       <table>
-        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Purpose</th><th></th></tr></thead>
+        <thead><tr><th>P.O. No.</th><th>Type</th><th>Supply Name</th><th>Variety</th><th>Qty</th><th>Date Received / Date Given Out</th><th>Location</th><th>Purpose</th><th></th></tr></thead>
         <tbody id="tbody-summary"></tbody>
       </table>
     </div>
@@ -373,6 +373,12 @@ tbody tr:hover .row-tip{display:block}
       </div>
     </div>
 
+    <!-- Inventory: location -->
+    <div id="f-location-wrap">
+      <label>Location <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional)</span></label>
+      <input type="text" id="f-location" placeholder="e.g. Cabinet A / Room 2" autocomplete="off"/>
+    </div>
+
     <!-- Given-out: who received -->
     <div id="f-who-wrap" style="display:none">
       <label>Who Received</label>
@@ -434,6 +440,8 @@ tbody tr:hover .row-tip{display:block}
         <div class="cal-days" id="cal-inv-edit-days"></div>
       </div>
     </div>
+    <label style="margin-top:12px">Location <span style="font-size:.68rem;font-weight:400;text-transform:none;color:#aaa">(optional)</span></label>
+    <input type="text" id="ie-location" placeholder="e.g. Cabinet A / Room 2" autocomplete="off"/>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeInvEdit()">Cancel</button>
       <button class="btn-save" id="btn-save-inv-edit" onclick="saveInvEdit()">Save Changes</button>
@@ -573,13 +581,13 @@ function renderTable(type){
     if(i<items.length){
       const it=items[i];
       if(type==='current'){
-        tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openInvEdit(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
+        tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(isoToDisplay(it.date_received||''))}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.location||'')}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openInvEdit(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('current',${it.id})" title="Remove">✕</button></td>`;
       } else {
         tr.innerHTML=`<td class="supply-cell">${esc(it.po_number||'—')}</td><td>${esc(it.supply_name)}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.variety||'')}</td><td>${it.quantity}</td><td>${esc(it.who_received||'')}</td><td style="color:var(--muted);font-size:.82rem">${esc(it.purpose||'')}</td><td>${esc(isoToDisplay(it.date_given||''))}</td><td style="display:flex;gap:2px;align-items:center"><button class="row-edit-btn" onclick="openEditModal(${it.id})" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M14.5 2.5l3 3L6 17H3v-3L14.5 2.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button class="del-btn" onclick="delItem('given',${it.id})" title="Remove">✕</button></td>`;
       }
     } else {
       tr.className='empty-row';
-      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?5:8);
+      tr.innerHTML='<td>&nbsp;</td>'+'<td></td>'.repeat(type==='current'?6:8);
     }
     tbody.appendChild(tr);
   }
@@ -665,6 +673,7 @@ function openModal(type){
   document.getElementById('f-select-wrap').style.display         = type==='given'?'':'none';
   document.getElementById('f-variety-select-wrap').style.display = 'none';
   document.getElementById('f-date-received-wrap').style.display  = type==='current'?'':'none';
+  document.getElementById('f-location-wrap').style.display        = type==='current'?'':'none';
   document.getElementById('f-who-wrap').style.display            = type==='given'?'':'none';
   document.getElementById('f-purpose-wrap').style.display        = type==='given'?'':'none';
   document.getElementById('f-date-given-wrap').style.display     = type==='given'?'':'none';
@@ -675,6 +684,7 @@ function openModal(type){
   document.getElementById('f-qty').value='';
   document.getElementById('f-who').value='';
   document.getElementById('f-purpose').value='';
+  document.getElementById('f-location').value='';
   document.getElementById('f-date-received-display').value='';
   document.getElementById('f-date-received').value='';
   document.getElementById('f-date-given-display').value='';
@@ -826,7 +836,8 @@ async function saveItem(){
       const variety=document.getElementById('f-variety').value.trim()?toTitleCase(document.getElementById('f-variety').value.trim()):null;
       const dateReceived=document.getElementById('f-date-received').value||null;
       const poNumber=document.getElementById('f-po').value.trim()||null;
-      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:null,po_number:poNumber})});
+      const location=document.getElementById('f-location').value.trim()||null;
+      await api('/api/inventory',{method:'POST',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:dateReceived,changed_by:null,po_number:poNumber,location})});
       toast(name+' added to inventory!','success');
       closeModal(); await loadTable('current');
     } else {
@@ -871,6 +882,7 @@ function openInvEdit(id){
     document.getElementById('ie-name').value=it.supply_name||'';
     document.getElementById('ie-variety').value=it.variety||'';
     document.getElementById('ie-qty').value=it.quantity||'';
+    document.getElementById('ie-location').value=it.location||'';
     const iso=it.date_received||'';
     document.getElementById('ie-date-display').value=isoToDisplay(iso);
     document.getElementById('ie-date').value=iso;
@@ -903,16 +915,17 @@ async function saveInvEdit(){
   const variety=document.getElementById('ie-variety').value.trim()?toTitleCase(document.getElementById('ie-variety').value.trim()):null;
   const qty=parseInt(document.getElementById('ie-qty').value)||0;
   const date=document.getElementById('ie-date').value||null;
+  const location=document.getElementById('ie-location').value.trim()||null;
   const btn=document.getElementById('btn-save-inv-edit');
   if(!name){ toast('Enter a supply name','error'); return; }
   if(qty<=0){ toast('Quantity must be > 0','error'); return; }
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Saving';
   try{
-    const updated=await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null,po_number:poNumber})});
+    const updated=await api('/api/inventory/'+id,{method:'PUT',body:JSON.stringify({supply_name:name,variety,quantity:qty,date_received:date,changed_by:null,po_number:poNumber,location})});
     console.log('saveInvEdit — variety sent:',variety,'response variety:',updated?.variety);
     // Patch local cache with server response (use server value for variety, fall back to what we sent)
     const idx=currentItems.findIndex(x=>x.id===id);
-    const fresh={...(idx>=0?currentItems[idx]:{}), ...(updated||{}), supply_name:name, po_number:(updated&&'po_number' in updated?updated.po_number:poNumber), variety:(updated&&'variety' in updated?updated.variety:variety), quantity:qty, date_received:date};
+    const fresh={...(idx>=0?currentItems[idx]:{}), ...(updated||{}), supply_name:name, po_number:(updated&&'po_number' in updated?updated.po_number:poNumber), variety:(updated&&'variety' in updated?updated.variety:variety), quantity:qty, date_received:date, location:(updated&&'location' in updated?updated.location:location)};
     if(idx>=0) currentItems[idx]=fresh; else currentItems.push(fresh);
     toast('Item updated!','success');
     closeInvEdit();
@@ -1102,6 +1115,7 @@ function renderSummaryTable(){
           date: isoToDisplay(isoDate)||'—',
           recipient: '—',
           purpose: '',
+          location: (it.location||''),
           edited_by: it.changed_by||''});
       });
     }
@@ -1118,6 +1132,7 @@ function renderSummaryTable(){
           date: isoToDisplay(isoDate)||'—',
           recipient: (it.detail||'—'),
           purpose: (it.purpose||''),
+          location: '',
           edited_by: it.changed_by||''});
       });
     }
@@ -1136,6 +1151,7 @@ function renderSummaryTable(){
       (r.name||'').toLowerCase().includes(search)||
       (r.po_number||'').toLowerCase().includes(search)||
       (r.variety||'').toLowerCase().includes(search)||
+      (r.location||'').toLowerCase().includes(search)||
       (r.purpose||'').toLowerCase().includes(search)||
       (r.date||'').toLowerCase().includes(search)||
       (r.isoDate||'').toLowerCase().includes(search)
@@ -1151,6 +1167,7 @@ function renderSummaryTable(){
         <td style="color:var(--muted);font-size:.82rem">${esc(r.variety)}</td>
         <td style="font-weight:600">${r.qty}</td>
         <td style="font-size:.82rem">${esc(r.date)}</td>
+        <td style="color:var(--muted);font-size:.82rem">${esc(r.location||'')}</td>
         <td style="color:var(--muted);font-size:.82rem">${esc(r.purpose||'')}</td>
         <td><button class="del-btn" style="opacity:.5" onclick="delLog(${r.logId})" title="Delete">✕</button></td>
       </tr>`).join('');
@@ -1205,7 +1222,7 @@ function exportPDF(){
       const label=it.txn_type==='inventory_deleted'?'Received - Deleted':it.txn_type==='inventory_edited'?'Received - Edited':'Received';
       pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.detail||'',
         po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
-        qty:String(it.quantity),date:isoToDisplay(it.detail||'')||'—',purpose:''});
+        qty:String(it.quantity),date:isoToDisplay(it.detail||'')||'—',purpose:'',location:it.location||''});
     });
   if(summaryFilter!=='inventory')
     summaryData.given_out.items.forEach(it=>{
@@ -1213,7 +1230,7 @@ function exportPDF(){
       const label=it.txn_type==='given_out_deleted'?'Given Out - Deleted':it.txn_type==='given_out_edited'?'Given Out - Edited':'Given Out';
       pdfRows.push({ca:it.created_at||'',id:it.id,iso:it.date_given||'',
         po:it.po_number||'—',label,name:it.supply_name||'',variety:v,
-        qty:String(it.quantity),date:isoToDisplay(it.date_given||'')||'—',purpose:it.purpose||''});
+        qty:String(it.quantity),date:isoToDisplay(it.date_given||'')||'—',purpose:it.purpose||'',location:''});
     });
 
   const mf=document.getElementById('month-filter').value;
@@ -1231,13 +1248,14 @@ function exportPDF(){
   // PO:20 TYPE:38 SUPPLY:52 VARIETY:30 QTY:12 DATE:44 PURPOSE:38 = 234... use portrait + compress
   // Portrait A4 usable: 210-24=186mm → PO:18 TYPE:34 SUPPLY:42 VARIETY:22 QTY:10 DATE:34 PURPOSE:26 = 186
   const cols=[
-    {key:'po',      label:'P.O. NO.',                       w:18, bold:true,  muted:false, badge:false},
-    {key:'label',   label:'TYPE',                           w:34, bold:false, muted:false, badge:true },
-    {key:'name',    label:'SUPPLY NAME',                    w:42, bold:false, muted:false, badge:false},
-    {key:'variety', label:'VARIETY',                        w:22, bold:false, muted:true,  badge:false},
+    {key:'po',      label:'P.O. NO.',                       w:16, bold:true,  muted:false, badge:false},
+    {key:'label',   label:'TYPE',                           w:32, bold:false, muted:false, badge:true },
+    {key:'name',    label:'SUPPLY NAME',                    w:36, bold:false, muted:false, badge:false},
+    {key:'variety', label:'VARIETY',                        w:20, bold:false, muted:true,  badge:false},
     {key:'qty',     label:'QTY',                            w:10, bold:true,  muted:false, badge:false},
-    {key:'date',    label:'DATE RECEIVED / DATE GIVEN OUT', w:34, bold:false, muted:false, badge:false},
-    {key:'purpose', label:'PURPOSE',                        w:26, bold:false, muted:true,  badge:false},
+    {key:'date',    label:'DATE RECEIVED / DATE GIVEN OUT', w:30, bold:false, muted:false, badge:false},
+    {key:'location',label:'LOCATION',                       w:22, bold:false, muted:true,  badge:false},
+    {key:'purpose', label:'PURPOSE',                        w:20, bold:false, muted:true,  badge:false},
   ];
   const tableW=cols.reduce((s,col)=>s+col.w,0);
   const rowH=8, hdrH=9;
